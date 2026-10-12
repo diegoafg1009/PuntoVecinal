@@ -1,0 +1,39 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+rules:
+  design:
+    - If the change touches the API, describe the endpoints and schemas added or modified in backend/api/openapi.yaml.
+  tasks:
+    - If the change touches the API, the first task is updating backend/api/openapi.yaml, and the second is regenerating the HTTP layer with `go tool oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml` (from backend/); handler code comes after and never edits generated files.
+    - If the change touches the database, add a new migration in supabase/migrations/, update the queries in backend/internal/db/queries/, and regenerate with `go tool sqlc generate` (from backend/) before writing code that uses them.
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
