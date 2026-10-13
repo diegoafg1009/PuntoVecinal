@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Punto Vecinal API
+  version: 0.1.0
+  description: API for the Punto Vecinal citizen reporting platform.
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Readiness check
+      description: Returns 200 when the API can reach the database.
+      tags: [System]
+      responses:
+        "200":
+          description: The API is ready to serve requests.
+        "503":
+          description: The database is unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: database unavailable

@@ -22,12 +22,12 @@ Also read the root `AGENTS.md`: its rules (spec first, git, secrets, language) a
 
 The HTTP layer (routes, handler interfaces, request and response types) is always generated from the contract with [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen). Never write it by hand and never edit generated files (`*.gen.go`).
 
-- Config: `backend/api/oapi-codegen.yaml` (chi router, strict server, models, embedded spec).
-- Output: `backend/internal/api/api.gen.go`, package `api`.
+- Config: `backend/api/http/oapi-codegen.yaml` (chi router, strict server, models, embedded spec).
+- Output: `internal/server/gen/api.gen.go`, package `api`.
 - Command, from `backend/`:
 
   ```
-  go tool oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+  go tool oapi-codegen -config api/http/oapi-codegen.yaml api/openapi.yaml
   ```
 
   oapi-codegen is pinned as a Go tool in `go.mod` (`go get -tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest`), so everyone uses the same version.
@@ -60,4 +60,38 @@ Database access code is always generated with [sqlc](https://sqlc.dev) from the 
 
 ## Commands
 
-To be defined once the Go module exists. When adding them, document here how to build, test, and run the API locally.
+Run everything from `backend/`. The `Makefile` wraps the commands; `make help` lists them all.
+
+Setup:
+
+1. `cp .env.example .env` and fill in the values. The API reads real environment variables first and `.env` as a fallback (viper, see `internal/platform/config`).
+2. `make supabase-start` brings up the local Supabase stack (needs Docker). `make supabase-status` prints its URLs.
+
+Daily use:
+
+| Command | What it does |
+| --- | --- |
+| `make run` | Run the API (`go run ./cmd/punto-vecinal-api`). |
+| `make watch` | Run with live reload (air, config in `.air.toml`). |
+| `make build` | Build the binary (`./main`). |
+| `make test` | Run all tests (`go test ./... -v`). |
+| `make fmt` / `make vet` / `make tidy` | Format, vet, and tidy modules. |
+
+Code generation (see [Code generation](#code-generation)):
+
+| Command | What it does |
+| --- | --- |
+| `make generate-api` | Regenerate the HTTP layer from `api/openapi.yaml`. |
+| `make generate-db` | Regenerate database access from the migrations and queries. |
+| `make generate` | Both of the above. |
+
+Database:
+
+| Command | What it does |
+| --- | --- |
+| `make migration-new name=<name>` | Create a new Supabase migration. |
+| `make db-reset` | Recreate the local DB from all migrations. |
+| `make db-lint` | Lint the local DB schema. |
+| `make supabase-stop` | Stop the local stack. |
+
+Check the API is up with `curl -i localhost:8080/healthz` (200 when it can reach the database).

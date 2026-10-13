@@ -1,7 +1,7 @@
 # oapi-codegen config. Run from backend/:
-#   go tool oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+#   go tool oapi-codegen -config api/http/oapi-codegen.yaml api/openapi.yaml
 package: api
-output: internal/api/api.gen.go
+output: internal/server/gen/api.gen.go
 generate:
   models: true
   chi-server: true
