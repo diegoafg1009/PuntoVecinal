@@ -1,0 +1,4 @@
+# Codex config for the frontend. Mirrors .mcp.json (Claude Code): keep both in sync.
+
+[mcp_servers.nuxt-ui]
+url = "https://ui.nuxt.com/mcp"

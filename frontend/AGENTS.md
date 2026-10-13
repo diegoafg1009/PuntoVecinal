@@ -6,6 +6,8 @@ Also read the root `AGENTS.md`: its rules (spec first, git, secrets, language) a
 
 - **Framework:** Nuxt with Nuxt UI (v4).
 - **Data:** everything goes through our own backend API, per `backend/api/openapi.yaml`. The frontend uses Supabase only for authentication (including the anonymous session for neighbors without an account); it never reads or writes tables directly.
+- **Server state:** TanStack Query (Vue Query) handles all data fetched from or sent to the backend API: queries, mutations, caching, and invalidation. Don't copy API responses into Pinia stores.
+- **Client state:** Pinia handles state that lives only in the frontend, such as the auth session, the Reportar draft across its 3 steps, and UI preferences.
 
 ## Design
 
