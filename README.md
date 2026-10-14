@@ -32,7 +32,7 @@ Cada historia de usuario (HU) de Jira sigue este ciclo. En Claude Code se usan l
 1. **Explorar (opcional):** `/opsx:explore` si la HU tiene dudas. Solo conversa y lee código; no escribe nada.
 2. **Proponer:** `/opsx:propose` con la clave de la HU, por ejemplo `/opsx:propose PV-12`. El agente lee la HU y sus criterios desde Jira; si no puede, pega su texto. El nombre del cambio incluye la clave. Crea `openspec/changes/<nombre>/` con `proposal.md`, `specs/` (requisitos y escenarios), `design.md` y `tasks.md`, y se detiene ahí.
 3. **Revisar:** lee esos archivos, sobre todo los escenarios de `specs/` y el orden de `tasks.md`. Para corregir algo, `/opsx:update` con lo que quieres cambiar. Luego `openspec validate`.
-4. **Implementar:** `/opsx:apply`. Sigue `tasks.md` y marca cada tarea. Si el cambio toca la API, primero actualiza `backend/api/http/openapi.yaml` y regenera con oapi-codegen; si toca la base de datos, primero crea la migración y regenera con sqlc; después escribe el código.
+4. **Implementar:** `/opsx:apply`. Sigue `tasks.md` y marca cada tarea. Si el cambio toca la API, primero actualiza el contrato en `openapi/` (módulos y esquemas) y regenera con `make generate-api` (desde `backend/`); si toca la base de datos, primero crea la migración y regenera con sqlc; después escribe el código.
 5. **Probar y hacer commit:** revisa el resultado y pide el commit (los agentes no hacen commits por su cuenta). Usa la clave de Jira en la rama y el mensaje.
 6. **Archivar:** `/opsx:archive`. Pasa los requisitos del cambio a `openspec/specs/` (la descripción vigente del sistema) y mueve el cambio a `openspec/changes/archive/`.
 

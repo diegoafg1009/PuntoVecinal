@@ -1,0 +1,8 @@
+# Responses and schemas shared by several modules.
+Unauthorized:
+  description: The token is missing, expired or invalid.
+  content:
+    text/plain:
+      schema:
+        type: string
+        example: unauthorized

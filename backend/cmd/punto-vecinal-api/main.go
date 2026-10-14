@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/config"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/database"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/httpserver"
@@ -56,7 +57,17 @@ func main() {
 	}
 	defer pool.Close()
 
-	server := httpserver.NewServer(cfg, pool)
+	verifier, err := auth.NewVerifier(context.Background(), cfg.Supabase.URL, cfg.Supabase.JWKSURL)
+	if err != nil {
+		slog.Error("create token verifier", "error", err)
+		os.Exit(1)
+	}
+
+	server, err := httpserver.NewServer(cfg, pool, verifier)
+	if err != nil {
+		slog.Error("create http server", "error", err)
+		os.Exit(1)
+	}
 
 	// Create a done channel to signal when the shutdown is complete
 	done := make(chan bool, 1)

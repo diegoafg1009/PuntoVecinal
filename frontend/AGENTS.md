@@ -2,10 +2,15 @@
 
 Also read the root `AGENTS.md`: its rules (spec first, git, secrets, language) apply here.
 
+## Applying OpenSpec changes from here
+
+When you run `/opsx:apply` (or the `openspec-apply-change` skill) from `frontend/`, do only the tasks prefixed `[frontend]`. Leave `[backend]`, `[db]` and `[all]` tasks unchecked and, when you finish, list the tasks that remain for other folders. If a task depends on a contract change that the `[backend]` tasks have not done yet (`openapi/` updated and `bun run generate:api` able to produce the new client), stop and say so instead of editing the contract yourself. If a task has no prefix, ask which area it belongs to.
+
 ## Stack
 
 - **Framework:** Nuxt with Nuxt UI (v4).
-- **Data:** everything goes through our own backend API, per `backend/api/openapi.yaml`. The frontend uses Supabase only for authentication (including the anonymous session for neighbors without an account); it never reads or writes tables directly.
+- **Data:** everything goes through our own backend API, per the contract in `openapi/` (bundled in `openapi/dist/openapi.yaml` by `make bundle`). The frontend uses Supabase only for authentication (including the anonymous session for neighbors without an account); it never reads or writes tables directly.
+- **API client:** generated from the contract with [Hey API](https://heyapi.dev) into `app/api/` (committed, never edited by hand): types, an SDK with one function per `operationId`, and TanStack Query helpers (`getMeOptions()`, ...). Import from `~/api/...`. The plugin `app/plugins/api.ts` sets the base URL and adds the Supabase access token to every request; don't build `$fetch` calls to the API by hand.
 - **Server state:** TanStack Query (Vue Query) handles all data fetched from or sent to the backend API: queries, mutations, caching, and invalidation. Don't copy API responses into Pinia stores.
 - **Client state:** Pinia handles state that lives only in the frontend, such as the auth session, the Reportar draft across its 3 steps, and UI preferences.
 
@@ -35,4 +40,20 @@ Read them through the Figma MCP server (configured in `.mcp.json` for Claude Cod
 
 ## Commands
 
-To be defined once the Nuxt project exists. When adding them, document here how to install, run, and test.
+Run everything from `frontend/` with [bun](https://bun.sh).
+
+Setup:
+
+1. `bun install`.
+2. `cp .env.example .env` and set `NUXT_PUBLIC_SUPABASE_ANON_KEY` (the `ANON_KEY` printed by `make supabase-status` in `backend/`). The other values point at the local Supabase stack and the API on `:8080`. `.env` is ignored by git.
+3. Start the local Supabase stack and the API first (see `backend/AGENTS.md`); the app needs both to let a neighbor in.
+
+| Command | What it does |
+| --- | --- |
+| `bun run dev` | Dev server at `http://localhost:3000`. |
+| `bun run build` | Production build (`.output/`). |
+| `bun run preview` | Serve the production build locally. |
+| `bun run typecheck` | Type-checks the app (`nuxt typecheck` with `vue-tsc`). |
+| `bun run generate:api` | Regenerates `app/api/` from `openapi/dist/openapi.yaml`. Run `make bundle` in `backend/` first, and commit the result with the contract change. |
+
+There is no test runner yet. The app runs as an SPA (`ssr: false`), so the Supabase session is read in the browser.

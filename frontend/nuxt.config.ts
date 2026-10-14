@@ -2,6 +2,15 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
-  modules: ['@nuxt/ui'],
-  css: ['~/assets/css/main.css']
+  // The Supabase session lives in the browser, so the app renders on the client.
+  ssr: false,
+  modules: ['@nuxt/ui', '@pinia/nuxt'],
+  css: ['~/assets/css/main.css'],
+  runtimeConfig: {
+    public: {
+      supabaseUrl: '',
+      supabaseAnonKey: '',
+      apiBaseUrl: ''
+    }
+  }
 })
