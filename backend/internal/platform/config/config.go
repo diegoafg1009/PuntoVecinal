@@ -112,5 +112,11 @@ func (c Config) validate() error {
 	if c.App.Port < 1 || c.App.Port > 65535 {
 		return fmt.Errorf("invalid PORT: %d", c.App.Port)
 	}
+	if c.Supabase.URL == "" {
+		return errors.New("SUPABASE_URL is required")
+	}
+	if c.Supabase.JWKSURL == "" {
+		return errors.New("SUPABASE_JWKSURL is required")
+	}
 	return nil
 }

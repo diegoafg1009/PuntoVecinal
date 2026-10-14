@@ -1,0 +1,30 @@
+# Module auth: identity of the caller. Referenced from ../openapi.yaml.
+paths:
+  /me:
+    get:
+      operationId: getMe
+      summary: Current caller
+      description: >-
+        Returns the user id and whether the session is anonymous, taken from the
+        verified Supabase token.
+      tags: [auth]
+      responses:
+        "200":
+          description: The authenticated caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+components:
+  schemas:
+    Me:
+      type: object
+      required: [id, isAnonymous]
+      properties:
+        id:
+          type: string
+          format: uuid
+        isAnonymous:
+          type: boolean

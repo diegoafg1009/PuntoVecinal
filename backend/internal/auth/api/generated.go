@@ -8,6 +8,7 @@ import (
 	"compress/flate"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,22 +17,29 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Me defines model for Me.
+type Me struct {
+	Id          openapi_types.UUID `json:"id"`
+	IsAnonymous bool               `json:"isAnonymous"`
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// GetHealthz Readiness check
-	// (GET /healthz)
-	GetHealthz(w http.ResponseWriter, r *http.Request)
+	// GetMe Current caller
+	// (GET /me)
+	GetMe(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
 
-// GetHealthz Readiness check
-// (GET /healthz)
-func (_ Unimplemented) GetHealthz(w http.ResponseWriter, r *http.Request) {
+// GetMe Current caller
+// (GET /me)
+func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -44,11 +52,11 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// GetHealthz operation middleware
-func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Request) {
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetHealthz(w, r)
+		siw.Handler.GetMe(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -172,33 +180,41 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/healthz", wrapper.GetHealthz)
+		r.Get(options.BaseURL+"/me", wrapper.GetMe)
 	})
 
 	return r
 }
 
-type GetHealthzRequestObject struct {
+type UnauthorizedTextResponse string
+
+type GetMeRequestObject struct {
 }
 
-type GetHealthzResponseObject interface {
-	VisitGetHealthzResponse(w http.ResponseWriter) error
+type GetMeResponseObject interface {
+	VisitGetMeResponse(w http.ResponseWriter) error
 }
 
-type GetHealthz200Response struct {
-}
+type GetMe200JSONResponse Me
 
-func (response GetHealthz200Response) VisitGetHealthzResponse(w http.ResponseWriter) error {
+func (response GetMe200JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	return nil
+	_, err := buf.WriteTo(w)
+	return err
 }
 
-type GetHealthz503TextResponse string
+type GetMe401TextResponse UnauthorizedTextResponse
 
-func (response GetHealthz503TextResponse) VisitGetHealthzResponse(w http.ResponseWriter) error {
+func (response GetMe401TextResponse) VisitGetMeResponse(w http.ResponseWriter) error {
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(503)
+	w.WriteHeader(401)
 
 	_, err := w.Write([]byte(fmt.Sprint(response)))
 	return err
@@ -206,9 +222,9 @@ func (response GetHealthz503TextResponse) VisitGetHealthzResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// GetHealthz Readiness check
-	// (GET /healthz)
-	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
+	// GetMe Current caller
+	// (GET /me)
+	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -250,23 +266,23 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
-// GetHealthz operation middleware
-func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
-	var request GetHealthzRequestObject
+// GetMe operation middleware
+func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	var request GetMeRequestObject
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetHealthz(ctx, request.(GetHealthzRequestObject))
+		return sh.ssi.GetMe(ctx, request.(GetMeRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetHealthz")
+		handler = middleware(handler, "GetMe")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetHealthzResponseObject); ok {
-		if err := validResponse.VisitGetHealthzResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetMeResponseObject); ok {
+		if err := validResponse.VisitGetMeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -279,12 +295,16 @@ func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"bJBPj9MwEMW/ijXnKDWtuOTWE/RWAeKCOEydaWyRjI1nUppW/u7Ioax21b2N/7z3fvPuEPgcobtDT+Jy",
-	"SBoiQwf748GcYzbqyRxn1mi+kwuMo3FBw43YZEoxa+DBpBH1HPPUQgMadCTo4K1mfzxAAxfK8s/dth9a",
-	"C6WBmIgxBehg19p2Bw0kVC+VZ+MJR/W3Og+kz4hfSOfMYrbWmj+eeGWt3A4rHTq/3vSoeEKhShcTZazy",
-	"Qw8dfCL9/MhoIJOkyEJr9tba57xvD/sg1b1fjEYjlC9kMv2eSVTautJHu6taF1mJV2ylq27SiIHrSZyn",
-	"CetEV5zS2tZ/RjMzXjCMeBqplrmk+iqaAw9QSmneQXrRBnktb6F+l3maMC9rW9gHJhHjPLlf1R0Hge4H",
-	"fF1EaYKfpZTyNwAA//8=",
+	"dJNBbxpNDIb/ysjfd1yxpOlpb6hSKypFjZq0PUQczK5hne56pjPeNCTa/155FkigzQWNgdd+/dh+htr3",
+	"wQuJJqieIVIKXhLl4JvgoK2P/ESNxbUXJVF7Kj1qGTpksSjVLfVoL3rEPnQEFQyvxQXoLti3SSPLFsZx",
+	"LKChVEcOyl6ggtuWnPqfJI6T6zkllm3h6DFwpMb56FgesONmBqadKmaXV2SfIfpAUXlyztnvxsce1bwM",
+	"/A8PBXBaiJdd74es2v++9r4jlFwn0q/BDEB1BznHa8nqmNKv76nWyRnVQ2Td3ZjDyc2aMFJcDNq+RB8P",
+	"3j7/uIVzFjdDwDUmcljXlNLEpXCb6HuH4vDgwLCgi7TlpGSYEqXEXmawJ5TbyfVe2m9VwzQAlo03R6fF",
+	"F9dLt/HRaUvuehD17jvVLNi5mpWfSFyk4KOybF3oUI2yFVTWPPhTzeJ6CQU8UExT9vnsYjY39j6QYGCo",
+	"4HI2n11CAQG1zbzKlrDT9gmq57GAss8D3pL+7fUr6RAlZa9Doui4cSiN+92StjT1sGdia3UEVzhFW7VM",
+	"1P70QJE3TI07os/MrS/bK7R6ywYq+ER6RVCcHsq7+fzsPjCEjussK++TP7uS/yNtoIL/ypfjK/cbXV7R",
+	"W9dh90SilpYaV2PXUZwZyvfzi7eyHm2WJ8ecF3Xoe4w7qODDECOJ7lPaKHGbbONNAavx9VpDdXe60Her",
+	"cXVUnM/ny4Eddo6kCZ5Fk0EVzLuZdkmph7E4Fy4b61R3zm/yfA7dHpXZ2rga/wQAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

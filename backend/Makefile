@@ -4,8 +4,11 @@
 MAIN         := ./cmd/punto-vecinal-api
 BIN          := main
 SUPABASE_DIR := ..
-OAPI_CONFIG  := api/http/oapi-codegen.yaml
-OAPI_SPEC    := api/openapi.yaml
+OAPI_DIR     := ../openapi
+OAPI_ROOT    := $(OAPI_DIR)/openapi.yaml
+OAPI_BUNDLE  := $(OAPI_DIR)/dist/openapi.yaml
+OAPI_CONFIGS := $(wildcard $(OAPI_DIR)/config/*.yaml)
+REDOCLY      := npx --yes @redocly/cli@2.63.0
 
 .DEFAULT_GOAL := help
 
@@ -20,7 +23,8 @@ help:
 	@echo "  clean            Remove the binary"
 	@echo "Code generation:"
 	@echo "  generate         Run oapi-codegen and sqlc"
-	@echo "  generate-api     HTTP layer from the OpenAPI contract"
+	@echo "  bundle           Bundle ../openapi/ into ../openapi/dist/openapi.yaml (Redocly CLI)"
+	@echo "  generate-api     HTTP layer of each module from the bundled contract"
 	@echo "  generate-db      Database access from Supabase migrations"
 	@echo "Supabase (local):"
 	@echo "  supabase-start   Start the local stack (needs Docker)"
@@ -75,9 +79,15 @@ watch:
 
 generate: generate-api generate-db
 
-generate-api:
-	@echo "Generating HTTP layer..."
-	@go tool oapi-codegen -config $(OAPI_CONFIG) $(OAPI_SPEC)
+bundle:
+	@echo "Bundling the OpenAPI contract..."
+	@$(REDOCLY) bundle $(OAPI_ROOT) -o $(OAPI_BUNDLE)
+
+generate-api: bundle
+	@for cfg in $(OAPI_CONFIGS); do \
+		echo "Generating HTTP layer ($$cfg)..."; \
+		go tool oapi-codegen -config $$cfg $(OAPI_BUNDLE) || exit 1; \
+	done
 
 generate-db:
 	@echo "Generating database access..."
@@ -106,5 +116,5 @@ db-lint:
 	@supabase db lint --workdir $(SUPABASE_DIR)
 
 .PHONY: help build run test fmt vet tidy clean watch \
-	generate generate-api generate-db \
+	bundle generate generate-api generate-db \
 	supabase-start supabase-stop supabase-status db-reset migration-new db-lint

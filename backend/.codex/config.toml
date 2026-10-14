@@ -1,0 +1,5 @@
+# Codex config for the backend. Mirrors .mcp.json (Claude Code): keep both in sync.
+
+[mcp_servers.gopls]
+command = "gopls"
+args = ["mcp"]
