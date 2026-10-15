@@ -36,6 +36,15 @@ async function discardAndLeave() {
   <div class="mx-auto flex min-h-screen w-full max-w-[560px] flex-col bg-default lg:min-h-0 lg:rounded-xl lg:border lg:border-default">
     <div class="flex h-14 items-center gap-1 border-b border-default pr-4 pl-2">
       <UButton
+        v-if="draft.step > 1"
+        icon="i-lucide-arrow-left"
+        color="neutral"
+        variant="ghost"
+        aria-label="Atrás"
+        @click="draft.step--"
+      />
+      <UButton
+        v-else
         icon="i-lucide-x"
         color="neutral"
         variant="ghost"
@@ -52,6 +61,7 @@ async function discardAndLeave() {
       <UStepper :model-value="draft.step - 1" :items="steps" disabled size="sm" class="w-full" />
 
       <ReportStepWhatHappens v-if="draft.step === 1" />
+      <ReportStepPhotoAndPlace v-else-if="draft.step === 2" />
       <div v-else class="flex flex-col items-center gap-4 py-10 text-center text-muted">
         <p>Próximamente</p>
         <UButton label="‹ Volver" color="neutral" variant="outline" @click="draft.step = 1" />
