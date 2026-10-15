@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ layout: false })
+definePageMeta({ layout: 'blank' })
 
 const session = useSessionStore()
 const toast = useToast()
