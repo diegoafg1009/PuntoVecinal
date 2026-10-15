@@ -1,6 +1,6 @@
 module github.com/diegoafg1009/PuntoVecinal/backend
 
-go 1.26.2
+go 1.27.2
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.2
