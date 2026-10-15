@@ -35,10 +35,15 @@ func newKey(t *testing.T) *ecdsa.PrivateKey {
 func newTestVerifier(t *testing.T, key *ecdsa.PrivateKey) *Verifier {
 	t.Helper()
 	enc := base64.RawURLEncoding.EncodeToString
+	// Uncompressed point: 0x04 || X (32 bytes) || Y (32 bytes).
+	point, err := key.PublicKey.Bytes()
+	if err != nil {
+		t.Fatalf("encode public key: %v", err)
+	}
 	jwks := map[string]any{"keys": []map[string]string{{
 		"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": testKeyID,
-		"x": enc(key.PublicKey.X.FillBytes(make([]byte, 32))),
-		"y": enc(key.PublicKey.Y.FillBytes(make([]byte, 32))),
+		"x": enc(point[1:33]),
+		"y": enc(point[33:65]),
 	}}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(jwks)

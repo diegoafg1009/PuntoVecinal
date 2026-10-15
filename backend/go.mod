@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.2
-	github.com/getkin/kin-openapi v0.142.0
+	github.com/getkin/kin-openapi v0.144.0
 	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-chi/cors v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
