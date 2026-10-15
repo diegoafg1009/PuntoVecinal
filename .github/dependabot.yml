@@ -1,0 +1,28 @@
+# Weekly update PRs. Tools written directly in the CI workflow (golangci-lint,
+# Supabase CLI, govulncheck, OpenSpec, Node, Bun) are not tracked here and are
+# bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: bun
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
