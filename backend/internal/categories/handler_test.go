@@ -81,7 +81,7 @@ func TestListCategoriesReturnsFiveInOrderOnEveryCall(t *testing.T) {
 
 	want := make([]item, len(fiveRows))
 	for i, row := range fiveRows {
-		want[i] = item{Slug: row.Slug, Label: row.Label}
+		want[i] = item(row)
 	}
 	if !reflect.DeepEqual(first, want) {
 		t.Fatalf("items = %v, want %v", first, want)

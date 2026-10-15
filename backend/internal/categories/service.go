@@ -28,7 +28,7 @@ func (s *Service) List(ctx context.Context) ([]CategoryDTO, error) {
 	}
 	dtos := make([]CategoryDTO, len(items))
 	for i, item := range items {
-		dtos[i] = CategoryDTO{Slug: item.Slug, Label: item.Label}
+		dtos[i] = CategoryDTO(item)
 	}
 	return dtos, nil
 }

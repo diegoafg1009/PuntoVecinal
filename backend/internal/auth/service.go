@@ -24,5 +24,5 @@ func (s *Service) Me(ctx context.Context) (CallerDTO, error) {
 		return CallerDTO{}, err
 	}
 	caller := Caller{ID: id, IsAnonymous: claims.IsAnonymous}
-	return CallerDTO{ID: caller.ID, IsAnonymous: caller.IsAnonymous}, nil
+	return CallerDTO(caller), nil
 }
