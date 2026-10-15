@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses } from './types.gen';
+import type { GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -33,5 +33,16 @@ export const getHealthz = <ThrowOnError extends boolean = false>(options?: Optio
 export const getMe = <ThrowOnError extends boolean = false>(options?: Options<GetMeData, ThrowOnError>): RequestResult<GetMeResponses, GetMeErrors, ThrowOnError> => (options?.client ?? client).get<GetMeResponses, GetMeErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/me',
+    ...options
+});
+
+/**
+ * List report categories
+ *
+ * Returns the fixed report categories, ordered by position. The list is the same on every call.
+ */
+export const listCategories = <ThrowOnError extends boolean = false>(options?: Options<ListCategoriesData, ThrowOnError>): RequestResult<ListCategoriesResponses, ListCategoriesErrors, ThrowOnError> => (options?.client ?? client).get<ListCategoriesResponses, ListCategoriesErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/categories',
     ...options
 });

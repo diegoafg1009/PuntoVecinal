@@ -12,6 +12,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@iconify-json/lucide": "^1.2.144",
     "@nuxt/ui": "^4.11.3",
     "@pinia/nuxt": "^1.0.2",
     "@supabase/supabase-js": "^2.117.3",

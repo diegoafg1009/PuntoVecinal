@@ -1,0 +1,35 @@
+# Module categories: the fixed report categories. Referenced from ../openapi.yaml.
+paths:
+  /categories:
+    get:
+      operationId: listCategories
+      summary: List report categories
+      description: >-
+        Returns the fixed report categories, ordered by position. The list is
+        the same on every call.
+      tags: [categories]
+      responses:
+        "200":
+          description: The categories, in display order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+components:
+  schemas:
+    Category:
+      type: object
+      required: [slug, label]
+      properties:
+        slug:
+          type: string
+          description: Stable identifier of the category.
+          example: pistas-y-veredas
+        label:
+          type: string
+          description: Name shown to neighbors, in Spanish.
+          example: Pistas y veredas

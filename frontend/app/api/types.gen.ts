@@ -9,6 +9,17 @@ export type Me = {
     isAnonymous: boolean;
 };
 
+export type Category = {
+    /**
+     * Stable identifier of the category.
+     */
+    slug: string;
+    /**
+     * Name shown to neighbors, in Spanish.
+     */
+    label: string;
+};
+
 export type GetHealthzData = {
     body?: never;
     path?: never;
@@ -56,3 +67,28 @@ export type GetMeResponses = {
 };
 
 export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type ListCategoriesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/categories';
+};
+
+export type ListCategoriesErrors = {
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+};
+
+export type ListCategoriesError = ListCategoriesErrors[keyof ListCategoriesErrors];
+
+export type ListCategoriesResponses = {
+    /**
+     * The categories, in display order.
+     */
+    200: Array<Category>;
+};
+
+export type ListCategoriesResponse = ListCategoriesResponses[keyof ListCategoriesResponses];

@@ -3,8 +3,8 @@
 import { queryOptions } from '@tanstack/vue-query';
 
 import { client } from '../client.gen';
-import { getHealthz, getMe, type Options } from '../sdk.gen';
-import type { GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse } from '../types.gen';
+import { getHealthz, getMe, listCategories, type Options } from '../sdk.gen';
+import type { GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -77,4 +77,24 @@ export const getMeOptions = (options?: Options<GetMeData>) => queryOptions<GetMe
         return data;
     },
     queryKey: getMeQueryKey(options)
+});
+
+export const listCategoriesQueryKey = (options?: Options<ListCategoriesData>) => createQueryKey('listCategories', options);
+
+/**
+ * List report categories
+ *
+ * Returns the fixed report categories, ordered by position. The list is the same on every call.
+ */
+export const listCategoriesOptions = (options?: Options<ListCategoriesData>) => queryOptions<ListCategoriesResponse, ListCategoriesError, ListCategoriesResponse, ReturnType<typeof listCategoriesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listCategories({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listCategoriesQueryKey(options)
 });

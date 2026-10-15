@@ -15,6 +15,7 @@ El inicio de sesión, el registro y el refresco del token los resuelve Supabase 
 - Toda operación del contrato (`openapi/`) exige `Authorization: Bearer <access_token>` salvo las que declaran `security: []` (hoy, `GET /healthz`). Una operación nueva queda protegida por defecto.
 - El token se verifica con las claves públicas de `SUPABASE_JWKSURL` (firma, expiración, emisor `SUPABASE_URL/auth/v1` y audiencia `authenticated`). Un token ausente, vencido o inválido responde `401`.
 - `GET /me` devuelve `{ "id": "<uuid>", "isAnonymous": bool }` del token verificado. El `id` no cambia al refrescar el token.
+- `GET /categories` devuelve las cinco categorías fijas de los reportes, en orden, como `[{ "slug": "limpieza", "label": "Limpieza" }, ...]`.
 - `SUPABASE_URL` y `SUPABASE_JWKSURL` son obligatorias: sin ellas la API no arranca (valores locales en `.env.example`).
 - Para probar en local con la pila de Supabase en marcha (`make supabase-start`), con `ANON_KEY` de `make supabase-status`:
 
