@@ -15,10 +15,55 @@ permissions:
   contents: read
 
 jobs:
+  # Decides which areas a change touches, so the other jobs can skip themselves.
+  # Skipped jobs count as successful for required checks, so this is safe with
+  # branch protection. Changes to the workflow itself run everything.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      contract: ${{ steps.filter.outputs.contract }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      database: ${{ steps.filter.outputs.database }}
+      specs: ${{ steps.filter.outputs.specs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            contract:
+              - 'openapi/**'
+              - 'backend/**'
+              - 'frontend/**'
+              - 'supabase/**'
+              - '.github/**'
+            backend:
+              - 'backend/**'
+              - 'openapi/**'
+              - 'supabase/migrations/**'
+              - '.github/**'
+            frontend:
+              - 'frontend/**'
+              - 'openapi/**'
+              - '.github/**'
+            database:
+              - 'supabase/**'
+              - '.github/**'
+            specs:
+              - 'openspec/**'
+              - '.github/**'
+
   # The OpenAPI contract is the source of truth: lint it, regenerate everything
   # derived from it (Go HTTP layer, sqlc, frontend client) and fail on any drift.
   contract:
     name: Contract and generated code
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +100,8 @@ jobs:
 
   backend:
     name: Backend (Go)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -88,6 +135,8 @@ jobs:
 
   backend-lint:
     name: Backend lint (golangci-lint)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,6 +151,8 @@ jobs:
 
   frontend:
     name: Frontend (Nuxt)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -119,6 +170,8 @@ jobs:
   # Applies every migration from scratch on a local Supabase stack and lints the schema.
   database:
     name: Database (Supabase)
+    needs: changes
+    if: needs.changes.outputs.database == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,6 +190,8 @@ jobs:
 
   specs:
     name: OpenSpec
+    needs: changes
+    if: needs.changes.outputs.specs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
