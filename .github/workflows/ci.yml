@@ -20,7 +20,7 @@ jobs:
   # branch protection. Changes to the workflow itself run everything.
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -64,7 +64,7 @@ jobs:
     name: Contract and generated code
     needs: changes
     if: needs.changes.outputs.contract == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -102,7 +102,7 @@ jobs:
     name: Backend (Go)
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -131,13 +131,13 @@ jobs:
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
       - name: Vulnerability scan
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   backend-lint:
     name: Backend lint (golangci-lint)
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -146,14 +146,14 @@ jobs:
           cache-dependency-path: backend/go.sum
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.14.0
           working-directory: backend
 
   frontend:
     name: Frontend (Nuxt)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -172,12 +172,12 @@ jobs:
     name: Database (Supabase)
     needs: changes
     if: needs.changes.outputs.database == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.121.0
       - name: Start local Supabase
         run: supabase start -x studio,imgproxy,inbucket,edge-runtime,logflare,vector,supavisor
       - name: Apply migrations from scratch
@@ -192,18 +192,18 @@ jobs:
     name: OpenSpec
     needs: changes
     if: needs.changes.outputs.specs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Validate changes and specs
-        run: npx --yes @fission-ai/openspec@latest validate --all --strict --no-interactive
+        run: npx --yes @fission-ai/openspec@1.14.2 validate --all --strict --no-interactive
 
   secrets:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
