@@ -1,14 +1,15 @@
-# sqlc config. Run from backend/:
+# sqlc config. One entry per module: each module generates its own `sqlc`
+# package inside its repository/ folder. Run from backend/:
 #   go tool sqlc generate
 version: "2"
 sql:
   - engine: postgresql
     schema: ../supabase/migrations
-    queries: internal/platform/database/queries
+    queries: internal/categories/repository/queries
     gen:
       go:
-        package: database
-        out: internal/platform/database
+        package: sqlc
+        out: internal/categories/repository/sqlc
         sql_package: pgx/v5
         emit_json_tags: true
         emit_interface: true

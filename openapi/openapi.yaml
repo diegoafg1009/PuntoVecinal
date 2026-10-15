@@ -10,6 +10,8 @@ tags:
     description: Operational endpoints.
   - name: auth
     description: Identity of the caller.
+  - name: categories
+    description: Fixed report categories.
 paths:
   /healthz:
     get:
@@ -30,6 +32,8 @@ paths:
                 example: database unavailable
   /me:
     $ref: ./modules/auth.yaml#/paths/~1me
+  /categories:
+    $ref: ./modules/categories.yaml#/paths/~1categories
 components:
   securitySchemes:
     bearerAuth:

@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories/repository"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/config"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/system"
@@ -15,15 +17,17 @@ import (
 type Server struct {
 	port int
 
-	db       system.Pinger
-	verifier auth.RequestVerifier
+	db         system.Pinger
+	categories categories.Repository
+	verifier   auth.RequestVerifier
 }
 
 func NewServer(cfg config.Config, db *pgxpool.Pool, verifier auth.RequestVerifier) (*http.Server, error) {
 	s := &Server{
-		port:     cfg.App.Port,
-		db:       db,
-		verifier: verifier,
+		port:       cfg.App.Port,
+		db:         db,
+		categories: repository.NewPgRepository(db),
+		verifier:   verifier,
 	}
 
 	handler, err := s.RegisterRoutes()

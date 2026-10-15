@@ -39,7 +39,7 @@ backend/
       config/, database/, logging/
 ```
 
-Today the modules are `auth` (`GET /me`) and `system` (`GET /healthz`). Each module exposes `Register(r chi.Router, verifier auth.RequestVerifier)`, which `internal/platform/httpserver` calls to mount it.
+Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database also take their store), which `internal/platform/httpserver` calls to mount it.
 
 ## Contract
 
@@ -52,7 +52,7 @@ The OpenAPI contract lives in `openapi/` at the repository root (the frontend ge
 - **Shared schemas** (`openapi/schemas/common.yaml`): top-level keys that are responses or schemas used by more than one module (for example `Unauthorized`). Reference them from a module with `$ref: ../schemas/common.yaml#/Unauthorized`. A schema used by a single module stays in that module's file; move it to `common.yaml` only when a second module needs it.
 - **Conventions for every operation:**
   - `operationId` in camelCase (`getMe`); it becomes the Go method name (`GetMe`).
-  - Exactly one tag, equal to the module name in lowercase (`auth`, `system`). The tag is what assigns the operation to a module's generated code, so a missing or wrong tag drops the operation from every module.
+  - Exactly one tag, equal to the module name in lowercase (`auth`, `categories`, `system`). The tag is what assigns the operation to a module's generated code, so a missing or wrong tag drops the operation from every module.
   - `security` is inherited from the root (bearer token required). Write `security: []` only to make an operation public (today only `/healthz`).
 - **Bundle:** [Redocly CLI](https://redocly.com/docs/cli) resolves every `$ref` and writes `openapi/dist/openapi.yaml` (`make bundle`). `dist/` is generated and ignored by git; never edit or commit it. The bundle is the only input of code generation.
 
@@ -88,17 +88,28 @@ The HTTP layer (routes, handler interfaces, request and response types) is alway
 1. Create `openapi/modules/<module>.yaml` with the paths, and reference each path from `openapi/openapi.yaml` (plus a tag with the module name in its `tags` list).
 2. Create `openapi/config/<module>.yaml`, copying an existing config and changing `output` (`internal/<module>/api/generated.go`) and `include-tags`.
 3. `make generate-api`.
-4. Create `internal/<module>/` with `handler.go`, `service.go` and `Register(r chi.Router, verifier auth.RequestVerifier) error` (copy `internal/auth/` as a reference), and mount it in `internal/platform/httpserver/routes.go`.
+4. Create `internal/<module>/` with `handler.go`, `service.go`, `domain.go` (models), `dto.go` and `Register(r chi.Router, verifier auth.RequestVerifier) error` (copy `internal/auth/` as a reference), and mount it in `internal/platform/httpserver/routes.go`.
 5. Add tests: handlers through the module's router with a fake verifier, including a 401 without a token for protected operations.
 
 ### Database access
 
 Database access code is always generated with [sqlc](https://sqlc.dev) from the Supabase migrations (the schema) and hand-written SQL queries. Never hand-write row structs or query functions, and never edit generated files.
 
-- Config: `backend/sqlc.yaml` (PostgreSQL, pgx/v5).
+- Config: `backend/sqlc.yaml` (PostgreSQL, pgx/v5), with one entry per module that touches the database. A new module adds its own entry.
 - Schema: `supabase/migrations/` at the repo root. sqlc reads the migrations directly, so there is no separate schema file to keep in sync.
-- Queries: one `.sql` file per area in `backend/internal/platform/database/queries/`, each query annotated with `-- name: QueryName :one|:many|:exec`.
-- Output: `backend/internal/platform/database/`, package `database`.
+- Layout: each module owns its database access, inside `internal/<module>/repository/`:
+
+  ```
+  internal/<module>/
+    repository/
+      queries/<module>.sql   hand-written SQL, each query annotated with `-- name: QueryName :one|:many|:exec`
+      sqlc/                  generated (db.go, models.go, querier.go, <module>.sql.go), package `sqlc`, never edited
+      repository.go          manual: `PgRepository` (wraps `sqlc.Queries`, returns the module's own types)
+    domain.go                domain models (entities, value types, errors)
+    dto.go                   DTOs: what the service takes and returns
+    service.go
+  ```
+  The service defines the `Repository` interface it needs (in `service.go`, next to its consumer) and `PgRepository` implements it, so the service never depends on the generated code. Domain models live in `domain.go`, never in `service.go`. Services take DTOs (`dto.go`) as parameters and return DTOs, never domain entities; the handler maps DTOs to the generated API types, and the service maps between DTOs and entities. and the repository returns them directly (no duplicate row types). Interfaces are always defined where they are consumed, never next to their implementation. `internal/platform/database/` only holds the connection pool.
 - Command, from `backend/`:
 
   ```

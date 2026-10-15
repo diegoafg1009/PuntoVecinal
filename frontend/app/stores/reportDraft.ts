@@ -10,7 +10,7 @@ export interface Step1Errors {
 }
 
 interface StoredDraft {
-  category: CategorySlug | null
+  category: string | null
   title: string
   details: string
   step: number
@@ -25,7 +25,7 @@ function readStored(): Partial<StoredDraft> {
     if (typeof data !== 'object' || data === null) return {}
     const { category, title, details, step } = data as Record<string, unknown>
     return {
-      ...(isCategorySlug(category) && { category }),
+      ...(typeof category === 'string' && { category }),
       ...(typeof title === 'string' && { title: title.slice(0, TITLE_MAX_LENGTH) }),
       ...(typeof details === 'string' && { details: details.slice(0, DETAILS_MAX_LENGTH) }),
       ...(Number.isInteger(step) && (step as number) >= 1 && (step as number) <= STEP_COUNT && { step: step as number })
@@ -46,7 +46,7 @@ function writeStored(draft: StoredDraft) {
 export const useReportDraftStore = defineStore('reportDraft', () => {
   const stored = readStored()
 
-  const category = ref<CategorySlug | null>(stored.category ?? null)
+  const category = ref<string | null>(stored.category ?? null)
   const title = ref(stored.title ?? '')
   const details = ref(stored.details ?? '')
   const step = ref(stored.step ?? 1)
@@ -62,6 +62,11 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
     return errors
   }
 
+  /** Clears a category the API no longer offers, keeping the rest of the draft. */
+  function pruneCategory(validSlugs: string[]) {
+    if (category.value !== null && !validSlugs.includes(category.value)) category.value = null
+  }
+
   /** True when the neighbor wrote or chose something worth keeping or discarding. */
   const hasData = computed(() => category.value !== null || title.value.trim() !== '' || details.value.trim() !== '')
 
@@ -73,5 +78,5 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
     step.value = 1
   }
 
-  return { category, title, details, step, hasData, validateStep1, reset }
+  return { category, title, details, step, hasData, validateStep1, pruneCategory, reset }
 })

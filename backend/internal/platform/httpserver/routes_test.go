@@ -6,12 +6,19 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
 )
 
 type fakeDB struct{}
 
 func (fakeDB) Ping(context.Context) error { return nil }
+
+type fakeCategories struct{}
+
+func (fakeCategories) List(context.Context) ([]categories.Category, error) {
+	return nil, nil
+}
 
 type rejectAll struct{}
 
@@ -20,7 +27,7 @@ func (rejectAll) VerifyRequest(*http.Request) (auth.Claims, error) {
 }
 
 func TestRouterAppliesEachContractsSecurity(t *testing.T) {
-	s := &Server{db: fakeDB{}, verifier: rejectAll{}}
+	s := &Server{db: fakeDB{}, categories: fakeCategories{}, verifier: rejectAll{}}
 	h, err := s.RegisterRoutes()
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +39,8 @@ func TestRouterAppliesEachContractsSecurity(t *testing.T) {
 	}{
 		{"/healthz", http.StatusOK},      // security: [] in the contract
 		{"/me", http.StatusUnauthorized}, // protected by default
-		{"/nope", http.StatusNotFound},   // not in any contract
+		{"/categories", http.StatusUnauthorized},
+		{"/nope", http.StatusNotFound}, // not in any contract
 	}
 	for _, tt := range tests {
 		w := httptest.NewRecorder()

@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/cors"
 
 	authmodule "github.com/diegoafg1009/PuntoVecinal/backend/internal/auth"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/system"
 )
 
@@ -28,6 +29,9 @@ func (s *Server) RegisterRoutes() (http.Handler, error) {
 		return nil, err
 	}
 	if err := authmodule.Register(r, s.verifier); err != nil {
+		return nil, err
+	}
+	if err := categories.Register(r, s.verifier, s.categories); err != nil {
 		return nil, err
 	}
 
