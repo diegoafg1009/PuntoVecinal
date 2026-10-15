@@ -3,10 +3,10 @@ const route = useRoute()
 
 const items = [
   { label: 'Inicio', icon: 'i-lucide-house', to: '/' },
-  { label: 'Buscar', icon: 'i-lucide-search', to: '/buscar' },
-  { label: 'Reportar', icon: 'i-lucide-plus', to: '/reportar', main: true },
-  { label: 'Avisos', icon: 'i-lucide-bell', to: '/avisos' },
-  { label: 'Mapa', icon: 'i-lucide-map', to: '/mapa' }
+  { label: 'Buscar', icon: 'i-lucide-search', to: '/search' },
+  { label: 'Reportar', icon: 'i-lucide-plus', to: '/report', main: true },
+  { label: 'Avisos', icon: 'i-lucide-bell', to: '/notices' },
+  { label: 'Mapa', icon: 'i-lucide-map', to: '/map' }
 ]
 
 function isCurrent(to: string) {

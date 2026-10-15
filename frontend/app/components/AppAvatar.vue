@@ -3,7 +3,7 @@ defineProps<{ size?: 'sm' | 'md' }>()
 </script>
 
 <template>
-  <NuxtLink to="/perfil" aria-label="Perfil" class="inline-flex">
+  <NuxtLink to="/profile" aria-label="Perfil" class="inline-flex">
     <UAvatar icon="i-lucide-user" :size="size ?? 'sm'" />
   </NuxtLink>
 </template>
