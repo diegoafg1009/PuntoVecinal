@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FormError } from '@nuxt/ui'
-import { useMutation } from '@tanstack/vue-query'
+import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { createReport } from '~/api'
 import type { CreateReportData } from '~/api/types.gen'
 
@@ -18,6 +18,7 @@ const RULES = [
 const draft = useReportDraftStore()
 const session = useSessionStore()
 const toast = useToast()
+const queryClient = useQueryClient()
 const { data: categories } = useCategories()
 
 const form = useTemplateRef('form')
@@ -82,6 +83,8 @@ const { mutate: publish, isPending } = useMutation({
   },
   onSuccess: async (created) => {
     draft.reset()
+    // The new report goes first in Inicio: drop every cached feed (with or without location).
+    queryClient.invalidateQueries({ queryKey: [{ _id: 'listReports' }] })
     await navigateTo(`/reports/${created.id}`)
     toast.add({ title: 'Reporte publicado', icon: 'i-lucide-circle-check', color: 'success' })
   },

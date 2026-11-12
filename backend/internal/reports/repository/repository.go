@@ -114,6 +114,43 @@ func (r *PgRepository) Get(ctx context.Context, id uuid.UUID) (reports.Report, e
 	return report, nil
 }
 
+// List returns up to params.Limit reports, newest first, continuing after the
+// key in params.
+func (r *PgRepository) List(ctx context.Context, params reports.ListParams) ([]reports.ReportSummary, error) {
+	arg := sqlc.ListReportsParams{RowLimit: int32(params.Limit)}
+	if params.HasAfter {
+		arg.AfterCreatedAt = pgtype.Timestamptz{Time: params.After, Valid: true}
+		arg.AfterID = pgUUID(params.AfterID)
+	}
+	if params.Latitude != nil && params.Longitude != nil {
+		arg.Lat = pgtype.Float8{Float64: *params.Latitude, Valid: true}
+		arg.Lng = pgtype.Float8{Float64: *params.Longitude, Valid: true}
+	}
+	rows, err := r.queries.ListReports(ctx, arg)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]reports.ReportSummary, len(rows))
+	for i, row := range rows {
+		items[i] = reports.ReportSummary{
+			ID:            row.ID.Bytes,
+			Title:         row.Title,
+			CategorySlug:  row.CategorySlug,
+			CategoryLabel: row.CategoryLabel,
+			Status:        string(row.Status),
+			Reference:     row.Reference.String,
+			CreatedAt:     row.CreatedAt.Time,
+			CoverKey:      row.CoverKey,
+		}
+		// The query answers -1 when no location was given.
+		if row.DistanceMeters >= 0 {
+			meters := int(row.DistanceMeters)
+			items[i].Distance = &meters
+		}
+	}
+	return items, nil
+}
+
 func pgUUID(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
 
 // pgText maps the empty string to NULL.

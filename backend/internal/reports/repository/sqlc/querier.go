@@ -20,6 +20,11 @@ type Querier interface {
 	InsertReport(ctx context.Context, arg InsertReportParams) error
 	InsertReportPhoto(ctx context.Context, arg InsertReportPhotoParams) error
 	ListReportPhotos(ctx context.Context, reportID pgtype.UUID) ([]ListReportPhotosRow, error)
+	// One page of the feed, newest first, continuing after the (created_at, id)
+	// key when one is given. The distance is in whole meters and only computed
+	// when a location is given: -1 means no location (sqlc cannot type a nullable
+	// expression). Never selects author_id nor author_name.
+	ListReports(ctx context.Context, arg ListReportsParams) ([]ListReportsRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

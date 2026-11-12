@@ -47,3 +47,32 @@ type ReportDTO struct {
 type PhotoDTO struct {
 	URL string
 }
+
+// ListReportsInput is what the service needs to list a page of reports. A
+// zero Limit means the default page size.
+type ListReportsInput struct {
+	Cursor    string // empty for the first page
+	Limit     int
+	Latitude  *float64
+	Longitude *float64
+}
+
+// ReportSummaryDTO is a report as a card shows it. It never carries the
+// author name nor the id of the session that published it.
+type ReportSummaryDTO struct {
+	ID             uuid.UUID
+	Title          string
+	CategorySlug   string
+	CategoryLabel  string
+	Status         string
+	Reference      string // empty when not given
+	CreatedAt      time.Time
+	CoverPhoto     PhotoDTO
+	DistanceMeters *int // nil when no location was given
+}
+
+// ReportPageDTO is one page of the feed.
+type ReportPageDTO struct {
+	Items      []ReportSummaryDTO
+	NextCursor string // empty on the last page
+}

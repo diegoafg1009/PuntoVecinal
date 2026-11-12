@@ -9,6 +9,9 @@ const PLACED_ZOOM = 17
 
 const location = defineModel<DraftLocation | null>('location', { required: true })
 
+// Read-only maps (the report page) show the place without letting it be moved or scrolled past.
+const props = defineProps<{ readonly?: boolean }>()
+
 const container = useTemplateRef('container')
 let map: LeafletMap | undefined
 let marker: Marker | undefined
@@ -28,7 +31,11 @@ onMounted(async () => {
   const L = await import('leaflet')
   if (!container.value) return
 
-  map = L.map(container.value, { zoomControl: false }).setView(currentCenter(), location.value ? PLACED_ZOOM : DEFAULT_ZOOM)
+  map = L.map(container.value, {
+    zoomControl: false,
+    scrollWheelZoom: !props.readonly,
+    dragging: !props.readonly
+  }).setView(currentCenter(), location.value ? PLACED_ZOOM : DEFAULT_ZOOM)
   L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Acercar', zoomOutTitle: 'Alejar' }).addTo(map)
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -36,7 +43,7 @@ onMounted(async () => {
   }).addTo(map)
 
   marker = L.marker(currentCenter(), {
-    draggable: true,
+    draggable: !props.readonly,
     keyboard: false,
     icon: L.divIcon({
       html: PIN_HTML,
@@ -46,9 +53,11 @@ onMounted(async () => {
     })
   }).addTo(map)
 
-  marker.on('dragend', () => choose(marker!.getLatLng()))
-  // Tapping is easier than dragging on a phone.
-  map.on('click', event => choose(event.latlng))
+  if (!props.readonly) {
+    marker.on('dragend', () => choose(marker!.getLatLng()))
+    // Tapping is easier than dragging on a phone.
+    map.on('click', event => choose(event.latlng))
+  }
 })
 
 // The position also changes from outside (the «Usar mi ubicación» button, a restored draft).
@@ -70,6 +79,7 @@ onBeforeUnmount(() => {
   <div class="relative h-[220px] overflow-hidden rounded-lg bg-accented">
     <div ref="container" class="size-full" />
     <UBadge
+      v-if="!readonly"
       label="Arrastra el pin"
       color="neutral"
       variant="solid"

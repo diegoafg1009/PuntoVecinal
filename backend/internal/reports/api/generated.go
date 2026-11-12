@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -142,6 +143,14 @@ type Report struct {
 	Title  string       `json:"title"`
 }
 
+// ReportPage defines model for ReportPage.
+type ReportPage struct {
+	Items []ReportSummary `json:"items"`
+
+	// NextCursor Cursor of the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
 // ReportPhoto defines model for ReportPhoto.
 type ReportPhoto struct {
 	// Url Signed link to the photo, valid for one hour.
@@ -151,11 +160,49 @@ type ReportPhoto struct {
 // ReportStatus Status of a report. Statuses only move forward.
 type ReportStatus string
 
+// ReportSummary A report as a card of the list shows it.
+type ReportSummary struct {
+	Category   Category    `json:"category"`
+	CoverPhoto ReportPhoto `json:"coverPhoto"`
+
+	// CreatedAt When the report was published.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DistanceMeters Distance in whole meters from the location sent in the request; null when no location was sent.
+	DistanceMeters *int               `json:"distanceMeters"`
+	Id             openapi_types.UUID `json:"id"`
+
+	// Reference Free text that helps to find the place.
+	Reference *string `json:"reference"`
+
+	// Status Status of a report. Statuses only move forward.
+	Status ReportStatus `json:"status"`
+	Title  string       `json:"title"`
+}
+
+// ListReportsParams defines parameters for ListReports.
+type ListReportsParams struct {
+	// Cursor Opaque cursor of the page to get, as returned in `nextCursor`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of reports in the page.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Latitude Latitude of the caller; must be sent together with `longitude`.
+	Latitude *float64 `form:"latitude,omitempty" json:"latitude,omitempty"`
+
+	// Longitude Longitude of the caller; must be sent together with `latitude`.
+	Longitude *float64 `form:"longitude,omitempty" json:"longitude,omitempty"`
+}
+
 // CreateReportMultipartRequestBody defines body for CreateReport for multipart/form-data ContentType.
 type CreateReportMultipartRequestBody = CreateReportRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListReports List reports
+	// (GET /reports)
+	ListReports(w http.ResponseWriter, r *http.Request, params ListReportsParams)
 	// CreateReport Publish a report
 	// (POST /reports)
 	CreateReport(w http.ResponseWriter, r *http.Request)
@@ -167,6 +214,12 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ListReports List reports
+// (GET /reports)
+func (_ Unimplemented) ListReports(w http.ResponseWriter, r *http.Request, params ListReportsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // CreateReport Publish a report
 // (POST /reports)
@@ -188,6 +241,78 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListReports operation middleware
+func (siw *ServerInterfaceWrapper) ListReports(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReportsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "latitude" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "latitude", r.URL.Query(), &params.Latitude, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "latitude"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "latitude", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "longitude" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "longitude", r.URL.Query(), &params.Longitude, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "longitude"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "longitude", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReports(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // CreateReport operation middleware
 func (siw *ServerInterfaceWrapper) CreateReport(w http.ResponseWriter, r *http.Request) {
@@ -343,6 +468,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/reports", wrapper.ListReports)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/reports", wrapper.CreateReport)
 	})
 	r.Group(func(r chi.Router) {
@@ -355,6 +483,50 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 type NotFoundTextResponse string
 
 type UnauthorizedTextResponse string
+
+type ListReportsRequestObject struct {
+	Params ListReportsParams
+}
+
+type ListReportsResponseObject interface {
+	VisitListReportsResponse(w http.ResponseWriter) error
+}
+
+type ListReports200JSONResponse ReportPage
+
+func (response ListReports200JSONResponse) VisitListReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReports400TextResponse string
+
+func (response ListReports400TextResponse) VisitListReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(400)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListReports401TextResponse UnauthorizedTextResponse
+
+func (response ListReports401TextResponse) VisitListReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
 
 type CreateReportRequestObject struct {
 	Body *multipart.Reader
@@ -478,6 +650,9 @@ func (response GetReport404TextResponse) VisitGetReportResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListReports List reports
+	// (GET /reports)
+	ListReports(ctx context.Context, request ListReportsRequestObject) (ListReportsResponseObject, error)
 	// CreateReport Publish a report
 	// (POST /reports)
 	CreateReport(ctx context.Context, request CreateReportRequestObject) (CreateReportResponseObject, error)
@@ -523,6 +698,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListReports operation middleware
+func (sh *strictHandler) ListReports(w http.ResponseWriter, r *http.Request, params ListReportsParams) {
+	var request ListReportsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReports(ctx, request.(ListReportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReportsResponseObject); ok {
+		if err := validResponse.VisitListReportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // CreateReport operation middleware
@@ -587,38 +788,48 @@ func (sh *strictHandler) GetReport(w http.ResponseWriter, r *http.Request, id st
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"TzrLxTdifbv+zwA=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

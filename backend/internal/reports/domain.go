@@ -22,6 +22,8 @@ var (
 	ErrTooManyReports = errors.New("too many reports")
 	// ErrNotFound is returned when a report does not exist.
 	ErrNotFound = errors.New("report not found")
+	// ErrInvalidCursor is returned when a page cursor is not one the API issued.
+	ErrInvalidCursor = errors.New("invalid cursor")
 )
 
 // TooManyReportsError tells how long the neighbor has to wait.
@@ -62,4 +64,29 @@ type Photo struct {
 type RecentReports struct {
 	Count  int
 	Oldest time.Time // creation time of the oldest one; zero when Count is 0
+}
+
+// ReportSummary is a report as the feed lists it: what a card shows. It never
+// carries the author.
+type ReportSummary struct {
+	ID            uuid.UUID
+	Title         string
+	CategorySlug  string
+	CategoryLabel string
+	Status        string
+	Reference     string // empty when not given
+	CreatedAt     time.Time
+	CoverKey      string // storage key of the first photo
+	Distance      *int   // whole meters from the requested location; nil without one
+}
+
+// ListParams selects one page of the feed. The page continues after the
+// (After, AfterID) key when HasAfter is set, and holds at most Limit reports.
+type ListParams struct {
+	HasAfter  bool
+	After     time.Time
+	AfterID   uuid.UUID
+	Limit     int
+	Latitude  *float64 // with Longitude: distances are computed from this point
+	Longitude *float64
 }

@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses } from './types.gen';
+import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -44,6 +44,17 @@ export const getMe = <ThrowOnError extends boolean = false>(options?: Options<Ge
 export const listCategories = <ThrowOnError extends boolean = false>(options?: Options<ListCategoriesData, ThrowOnError>): RequestResult<ListCategoriesResponses, ListCategoriesErrors, ThrowOnError> => (options?.client ?? client).get<ListCategoriesResponses, ListCategoriesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/categories',
+    ...options
+});
+
+/**
+ * List reports
+ *
+ * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one.
+ */
+export const listReports = <ThrowOnError extends boolean = false>(options?: Options<ListReportsData, ThrowOnError>): RequestResult<ListReportsResponses, ListReportsErrors, ThrowOnError> => (options?.client ?? client).get<ListReportsResponses, ListReportsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports',
     ...options
 });
 

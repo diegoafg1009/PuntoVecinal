@@ -75,6 +75,40 @@ func (h *Handler) CreateReport(ctx context.Context, req api.CreateReportRequestO
 	return api.CreateReport201JSONResponse{Id: created.ID, Status: api.CreatedReportStatus(created.Status)}, nil
 }
 
+// ListReports implements the listReports operation of the contract.
+func (h *Handler) ListReports(ctx context.Context, req api.ListReportsRequestObject) (api.ListReportsResponseObject, error) {
+	in := ListReportsInput{Latitude: req.Params.Latitude, Longitude: req.Params.Longitude}
+	if req.Params.Cursor != nil {
+		in.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Limit != nil {
+		in.Limit = *req.Params.Limit
+	}
+
+	page, err := h.service.List(ctx, in)
+	switch {
+	case errors.Is(err, ErrInvalidReport), errors.Is(err, ErrInvalidCursor):
+		return api.ListReports400TextResponse(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+
+	items := make([]api.ReportSummary, len(page.Items))
+	for i, r := range page.Items {
+		items[i] = api.ReportSummary{
+			Id:             r.ID,
+			Title:          r.Title,
+			Category:       api.Category{Slug: r.CategorySlug, Label: r.CategoryLabel},
+			Status:         api.ReportStatus(r.Status),
+			Reference:      optional(r.Reference),
+			CreatedAt:      r.CreatedAt,
+			CoverPhoto:     api.ReportPhoto{Url: r.CoverPhoto.URL},
+			DistanceMeters: r.DistanceMeters,
+		}
+	}
+	return api.ListReports200JSONResponse{Items: items, NextCursor: optional(page.NextCursor)}, nil
+}
+
 // GetReport implements the getReport operation of the contract.
 func (h *Handler) GetReport(ctx context.Context, req api.GetReportRequestObject) (api.GetReportResponseObject, error) {
 	r, err := h.service.Get(ctx, req.Id)

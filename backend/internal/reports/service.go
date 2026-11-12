@@ -3,6 +3,7 @@ package reports
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,6 +28,8 @@ const (
 	rateLimitWindow = 10 * time.Minute
 	cleanupTimeout  = 10 * time.Second
 	photoLinkTTL    = time.Hour
+	defaultPageSize = 20
+	maxPageSize     = 50
 
 	// MaxPhotoBytes is the largest photo, as received, that is accepted.
 	MaxPhotoBytes = 10 << 20
@@ -43,6 +46,9 @@ type Repository interface {
 	Create(ctx context.Context, report Report) error
 	// Get returns the report with its photos in order, or ErrNotFound.
 	Get(ctx context.Context, id uuid.UUID) (Report, error)
+	// List returns up to params.Limit reports, newest first, continuing after
+	// the key in params.
+	List(ctx context.Context, params ListParams) ([]ReportSummary, error)
 }
 
 // PhotoStore is the file storage the service needs; implemented by
@@ -152,6 +158,99 @@ func (s *Service) Get(ctx context.Context, id string) (ReportDTO, error) {
 		CreatedAt:     r.CreatedAt,
 		Photos:        photos,
 	}, nil
+}
+
+// List returns one page of the feed, newest first. Each cover photo is a
+// signed link that expires after one hour. The cursor in the page continues
+// right after its last item; it is empty on the last page.
+func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO, error) {
+	limit := in.Limit
+	if limit == 0 {
+		limit = defaultPageSize
+	}
+	if limit < 1 || limit > maxPageSize {
+		return ReportPageDTO{}, invalid("limit must be between 1 and %d", maxPageSize)
+	}
+	if (in.Latitude == nil) != (in.Longitude == nil) {
+		return ReportPageDTO{}, invalid("latitude and longitude must be sent together")
+	}
+	if in.Latitude != nil {
+		if !inRange(*in.Latitude, 90) {
+			return ReportPageDTO{}, invalid("latitude must be between -90 and 90")
+		}
+		if !inRange(*in.Longitude, 180) {
+			return ReportPageDTO{}, invalid("longitude must be between -180 and 180")
+		}
+	}
+
+	// One more than the page, to know whether there is a next page.
+	params := ListParams{Limit: limit + 1, Latitude: in.Latitude, Longitude: in.Longitude}
+	if in.Cursor != "" {
+		after, id, err := decodeCursor(in.Cursor)
+		if err != nil {
+			return ReportPageDTO{}, err
+		}
+		params.HasAfter, params.After, params.AfterID = true, after, id
+	}
+	rows, err := s.repo.List(ctx, params)
+	if err != nil {
+		return ReportPageDTO{}, fmt.Errorf("list reports: %w", err)
+	}
+
+	page := ReportPageDTO{Items: []ReportSummaryDTO{}}
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[limit-1]
+		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
+	for _, r := range rows {
+		link, err := s.photos.URL(ctx, r.CoverKey, photoLinkTTL)
+		if err != nil {
+			return ReportPageDTO{}, fmt.Errorf("sign cover of report %s: %w", r.ID, err)
+		}
+		page.Items = append(page.Items, ReportSummaryDTO{
+			ID:             r.ID,
+			Title:          r.Title,
+			CategorySlug:   r.CategorySlug,
+			CategoryLabel:  r.CategoryLabel,
+			Status:         r.Status,
+			Reference:      r.Reference,
+			CreatedAt:      r.CreatedAt,
+			CoverPhoto:     PhotoDTO{URL: link},
+			DistanceMeters: r.Distance,
+		})
+	}
+	return page, nil
+}
+
+// encodeCursor builds the opaque cursor that continues after a report: the
+// base64url of "<created_at RFC3339Nano>|<id>". The full time precision is
+// kept so that reports with the same second are still told apart.
+func encodeCursor(createdAt time.Time, id uuid.UUID) string {
+	raw := createdAt.UTC().Format(time.RFC3339Nano) + "|" + id.String()
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+// decodeCursor is the inverse of encodeCursor; anything else is
+// ErrInvalidCursor.
+func decodeCursor(cursor string) (time.Time, uuid.UUID, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, uuid.Nil, ErrInvalidCursor
+	}
+	ts, idText, ok := strings.Cut(string(raw), "|")
+	if !ok {
+		return time.Time{}, uuid.Nil, ErrInvalidCursor
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return time.Time{}, uuid.Nil, ErrInvalidCursor
+	}
+	id, err := uuid.Parse(idText)
+	if err != nil {
+		return time.Time{}, uuid.Nil, ErrInvalidCursor
+	}
+	return createdAt, id, nil
 }
 
 // validate checks the data sent by the neighbor and returns the report to
