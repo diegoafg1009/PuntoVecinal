@@ -2,9 +2,6 @@
 import type { Map as LeafletMap, Marker } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// Assumption: the Cooperativa Primavera area in Comas, to be adjusted with the real coordinates.
-const DEFAULT_CENTER = { lat: -11.936, lng: -77.05 }
-const DEFAULT_ZOOM = 16
 const PLACED_ZOOM = 17
 
 const location = defineModel<DraftLocation | null>('location', { required: true })
@@ -20,7 +17,7 @@ let marker: Marker | undefined
 const PIN_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>'
 
 function currentCenter() {
-  return location.value ?? DEFAULT_CENTER
+  return location.value ?? PILOT_CENTER
 }
 
 function choose(position: { lat: number, lng: number }) {
@@ -35,7 +32,7 @@ onMounted(async () => {
     zoomControl: false,
     scrollWheelZoom: !props.readonly,
     dragging: !props.readonly
-  }).setView(currentCenter(), location.value ? PLACED_ZOOM : DEFAULT_ZOOM)
+  }).setView(currentCenter(), location.value ? PLACED_ZOOM : PILOT_ZOOM)
   L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Acercar', zoomOutTitle: 'Alejar' }).addTo(map)
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,

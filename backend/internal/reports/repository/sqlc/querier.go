@@ -20,6 +20,10 @@ type Querier interface {
 	InsertReport(ctx context.Context, arg InsertReportParams) error
 	InsertReportPhoto(ctx context.Context, arg InsertReportPhotoParams) error
 	ListReportPhotos(ctx context.Context, reportID pgtype.UUID) ([]ListReportPhotosRow, error)
+	// The newest reports as map points, with the same category and status filters
+	// as ListReports (an empty @categories array matches every category). Never
+	// selects author_id nor author_name, and needs no photo.
+	ListReportPins(ctx context.Context, arg ListReportPinsParams) ([]ListReportPinsRow, error)
 	// One page of the feed, newest first, continuing after the (created_at, id)
 	// key when one is given. The distance is in whole meters and only computed
 	// when a location is given: -1 means no location (sqlc cannot type a nullable
@@ -38,6 +42,8 @@ type Querier interface {
 	// its title or details, ignoring case and accents. The distance is as in
 	// ListReports: -1 means no location. Never selects author_id nor author_name.
 	SearchReportsRecent(ctx context.Context, arg SearchReportsRecentParams) ([]SearchReportsRecentRow, error)
+	// The slugs in @slugs that are not one of the fixed categories.
+	UnknownCategories(ctx context.Context, slugs []string) ([]string, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -65,13 +65,13 @@ export function useNeighborLocation() {
     }
   }
 
-  /** Called from a button. Returns whether the location was obtained; if not, a toast says so. */
-  async function share() {
+  /**
+   * Called from a button. Returns whether the location was obtained; if not, a toast says so,
+   * with `failureMessage` when the screen needs its own wording.
+   */
+  async function share(failureMessage = 'No pudimos obtener tu ubicación. Los reportes se muestran sin distancia.') {
     if (await acquire()) return true
-    toast.add({
-      title: 'No pudimos obtener tu ubicación. Los reportes se muestran sin distancia.',
-      color: 'error'
-    })
+    toast.add({ title: failureMessage, color: 'error' })
     return false
   }
 

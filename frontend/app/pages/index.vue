@@ -8,17 +8,19 @@ const FIVE_MINUTES = 5 * 60_000
 const PAGE_SIZE = 20
 
 const session = useSessionStore()
+const filters = useReportFiltersStore()
 const { location, locating, share, restore } = useNeighborLocation()
 
 onMounted(restore)
 
 const hasLocation = computed(() => location.value !== null)
 
-// The location is part of the key, so sharing it reloads the list from the first page.
+// The location and the filters are part of the key, so changing them reloads the list from the first page.
 const query = useInfiniteQuery(computed(() => ({
   ...listReportsInfiniteOptions({
     query: {
       limit: PAGE_SIZE,
+      ...filters.queryParams,
       ...(location.value ? { latitude: location.value.latitude, longitude: location.value.longitude } : {})
     }
   }),
@@ -59,9 +61,11 @@ useIntersectionObserver(sentinel, ([entry]) => {
           variant="ghost"
           size="sm"
           :loading="locating"
-          @click="share"
+          @click="share()"
         />
       </div>
+
+      <ReportFilterChips variant="soft" />
 
       <div v-if="query.isPending.value && session.isAuthenticated" class="space-y-3" aria-busy="true">
         <USkeleton v-for="n in 3" :key="n" class="h-64 w-full" />
@@ -72,6 +76,13 @@ useIntersectionObserver(sentinel, ([entry]) => {
           No pudimos cargar los reportes.
         </p>
         <UButton label="Reintentar" color="neutral" variant="outline" @click="query.refetch()" />
+      </div>
+
+      <div v-else-if="!reports.length && query.isSuccess.value && filters.activeCount > 0" class="space-y-3 py-10 text-center">
+        <p class="text-muted">
+          Ningún reporte coincide con los filtros.
+        </p>
+        <UButton label="Quitar filtros" color="neutral" variant="outline" @click="filters.clear()" />
       </div>
 
       <div v-else-if="!reports.length && query.isSuccess.value" class="space-y-3 py-10 text-center">

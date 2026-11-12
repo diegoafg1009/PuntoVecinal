@@ -657,3 +657,139 @@ func TestSearchReportsServerError(t *testing.T) {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }
+
+func getMap(h http.Handler, authorization, query string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, "/reports/map"+query, nil)
+	if authorization != "" {
+		r.Header.Set("Authorization", authorization)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+func TestGetReportMapReturnsPins(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	id := uuid.New()
+	repo.pins = []ReportPin{{
+		ID: id, Title: "Poste sin luz", CategorySlug: "alumbrado", CategoryLabel: "Alumbrado",
+		Status: "en_atencion", Latitude: -11.93, Longitude: -77.05,
+	}}
+
+	w := getMap(h, "Bearer good", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
+	}
+	var body struct {
+		Items []struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Category struct {
+				Slug  string `json:"slug"`
+				Label string `json:"label"`
+			} `json:"category"`
+			Status   string `json:"status"`
+			Location struct {
+				Latitude  float64 `json:"latitude"`
+				Longitude float64 `json:"longitude"`
+			} `json:"location"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(body.Items))
+	}
+	it := body.Items[0]
+	if it.ID != id.String() || it.Title != "Poste sin luz" || it.Category.Slug != "alumbrado" ||
+		it.Category.Label != "Alumbrado" || it.Status != "en_atencion" ||
+		it.Location.Latitude != -11.93 || it.Location.Longitude != -77.05 {
+		t.Errorf("item = %+v", it)
+	}
+}
+
+func TestGetReportMapEmptyIsAnEmptyList(t *testing.T) {
+	h, _, _ := newRouter(t)
+	w := getMap(h, "Bearer good", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"items":[]`) {
+		t.Errorf("status = %d, body = %s", w.Code, w.Body)
+	}
+}
+
+func TestGetReportMapNeverExposesTheAuthorOrDetails(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.pins = []ReportPin{{ID: uuid.New(), Title: "t", CategorySlug: "limpieza", CategoryLabel: "Limpieza", Status: "publicado"}}
+
+	body := strings.ToLower(getMap(h, "Bearer good", "").Body.String())
+	for _, forbidden := range []string{"authorname", "authorid", "author_id", "details", "userid", testUserID} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("response contains %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestMapRouteIsNotTakenAsAReportID(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.getErr = errors.New("Get must not be called")
+	if w := getMap(h, "Bearer good", ""); w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
+	}
+}
+
+func TestFiltersReachTheServiceOnBothOperations(t *testing.T) {
+	const query = "?category=limpieza&category=alumbrado&status=publicado"
+	want := []string{"limpieza", "alumbrado"}
+
+	h, repo, _ := newRouter(t)
+	repo.categories["alumbrado"] = true
+
+	if w := getMap(h, "Bearer good", query); w.Code != http.StatusOK {
+		t.Fatalf("map: status = %d, body = %s", w.Code, w.Body)
+	}
+	if !reflect.DeepEqual(repo.pinsParams.Categories, want) || repo.pinsParams.Status != "publicado" {
+		t.Errorf("map params = %+v", repo.pinsParams)
+	}
+
+	if w := listReports(h, "Bearer good", query); w.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, body = %s", w.Code, w.Body)
+	}
+	if !reflect.DeepEqual(repo.listParams.Categories, want) || repo.listParams.Status != "publicado" {
+		t.Errorf("list params = %+v", repo.listParams)
+	}
+}
+
+func TestFilterBadRequests(t *testing.T) {
+	for name, query := range map[string]string{
+		"unknown category": "?category=nope",
+		"invalid status":   "?status=nope",
+		"six categories":   "?category=a&category=b&category=c&category=d&category=e&category=f",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, _, _ := newRouter(t)
+			if w := getMap(h, "Bearer good", query); w.Code != http.StatusBadRequest {
+				t.Errorf("map: status = %d, want 400, body = %s", w.Code, w.Body)
+			}
+			if w := listReports(h, "Bearer good", query); w.Code != http.StatusBadRequest {
+				t.Errorf("list: status = %d, want 400, body = %s", w.Code, w.Body)
+			}
+		})
+	}
+}
+
+func TestGetReportMapRequiresAValidToken(t *testing.T) {
+	h, _, _ := newRouter(t)
+	for _, authorization := range []string{"", "Bearer bad"} {
+		if w := getMap(h, authorization, ""); w.Code != http.StatusUnauthorized {
+			t.Errorf("Authorization %q: status = %d, want 401", authorization, w.Code)
+		}
+	}
+}
+
+func TestGetReportMapServerError(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.pinsErr = errors.New("db down")
+	if w := getMap(h, "Bearer good", ""); w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
