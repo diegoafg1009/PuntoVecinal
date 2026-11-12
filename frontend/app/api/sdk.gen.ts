@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses } from './types.gen';
+import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses, SearchReportsData, SearchReportsErrors, SearchReportsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -72,6 +72,17 @@ export const createReport = <ThrowOnError extends boolean = false>(options: Opti
         'Content-Type': null,
         ...options.headers
     }
+});
+
+/**
+ * Search reports
+ *
+ * Returns the published reports whose title or details contain every word of `q`, ignoring case and accents, in pages with the same items as the feed. The order is newest first (`sort=recent`, the default) or nearest first (`sort=distance`, which needs `latitude` and `longitude`). `q` may be left out only when ordering by distance, which lists every report nearest first. Send `latitude` and `longitude` together to get the distance to each report. Pass the `nextCursor` of a page as `cursor` to get the following one; a cursor only works with the order it was issued for.
+ */
+export const searchReports = <ThrowOnError extends boolean = false>(options?: Options<SearchReportsData, ThrowOnError>): RequestResult<SearchReportsResponses, SearchReportsErrors, ThrowOnError> => (options?.client ?? client).get<SearchReportsResponses, SearchReportsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/search',
+    ...options
 });
 
 /**

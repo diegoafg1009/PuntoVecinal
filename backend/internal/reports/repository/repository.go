@@ -151,6 +151,95 @@ func (r *PgRepository) List(ctx context.Context, params reports.ListParams) ([]r
 	return items, nil
 }
 
+// Search returns up to params.Limit reports that contain every word, in the
+// order of params, continuing after the key in params.
+func (r *PgRepository) Search(ctx context.Context, params reports.SearchParams) ([]reports.SearchHit, error) {
+	words := params.Words
+	if words == nil {
+		words = []string{}
+	}
+	var after pgtype.Timestamptz
+	var afterID pgtype.UUID
+	if params.HasAfter {
+		after = pgtype.Timestamptz{Time: params.After, Valid: true}
+		afterID = pgUUID(params.AfterID)
+	}
+
+	if params.Order == reports.OrderDistance {
+		if params.Latitude == nil || params.Longitude == nil {
+			return nil, errors.New("search by distance needs a location")
+		}
+		arg := sqlc.SearchReportsNearestParams{
+			Lat:            *params.Latitude,
+			Lng:            *params.Longitude,
+			Words:          words,
+			AfterCreatedAt: after,
+			AfterID:        afterID,
+			RowLimit:       int32(params.Limit),
+		}
+		if params.HasAfter {
+			arg.AfterDistance = pgtype.Float8{Float64: params.AfterDistance, Valid: true}
+		}
+		rows, err := r.queries.SearchReportsNearest(ctx, arg)
+		if err != nil {
+			return nil, err
+		}
+		hits := make([]reports.SearchHit, len(rows))
+		for i, row := range rows {
+			meters := int(row.DistanceMeters)
+			hits[i] = reports.SearchHit{
+				ReportSummary: reports.ReportSummary{
+					ID:            row.ID.Bytes,
+					Title:         row.Title,
+					CategorySlug:  row.CategorySlug,
+					CategoryLabel: row.CategoryLabel,
+					Status:        string(row.Status),
+					Reference:     row.Reference.String,
+					CreatedAt:     row.CreatedAt.Time,
+					CoverKey:      row.CoverKey,
+					Distance:      &meters,
+				},
+				ExactDistance: row.Distance,
+			}
+		}
+		return hits, nil
+	}
+
+	arg := sqlc.SearchReportsRecentParams{
+		Words:          words,
+		AfterCreatedAt: after,
+		AfterID:        afterID,
+		RowLimit:       int32(params.Limit),
+	}
+	if params.Latitude != nil && params.Longitude != nil {
+		arg.Lat = pgtype.Float8{Float64: *params.Latitude, Valid: true}
+		arg.Lng = pgtype.Float8{Float64: *params.Longitude, Valid: true}
+	}
+	rows, err := r.queries.SearchReportsRecent(ctx, arg)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]reports.SearchHit, len(rows))
+	for i, row := range rows {
+		hits[i].ReportSummary = reports.ReportSummary{
+			ID:            row.ID.Bytes,
+			Title:         row.Title,
+			CategorySlug:  row.CategorySlug,
+			CategoryLabel: row.CategoryLabel,
+			Status:        string(row.Status),
+			Reference:     row.Reference.String,
+			CreatedAt:     row.CreatedAt.Time,
+			CoverKey:      row.CoverKey,
+		}
+		// The query answers -1 when no location was given.
+		if row.DistanceMeters >= 0 {
+			meters := int(row.DistanceMeters)
+			hits[i].Distance = &meters
+		}
+	}
+	return hits, nil
+}
+
 func pgUUID(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
 
 // pgText maps the empty string to NULL.

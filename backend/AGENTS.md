@@ -41,7 +41,7 @@ backend/
       config/, database/, logging/
 ```
 
-Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`), `reports` (`POST /reports`, `GET /reports`, `GET /reports/{id}`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database or file storage also take their store), which `internal/platform/httpserver` calls to mount it.
+Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`), `reports` (`POST /reports`, `GET /reports`, `GET /reports/search`, `GET /reports/{id}`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database or file storage also take their store), which `internal/platform/httpserver` calls to mount it.
 
 ## Contract
 

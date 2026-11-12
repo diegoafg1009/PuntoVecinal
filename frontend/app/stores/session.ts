@@ -5,6 +5,8 @@ export const useSessionStore = defineStore('session', () => {
 
   const isAuthenticated = computed(() => session.value !== null)
   const userId = computed(() => session.value?.user.id ?? null)
+  /** Whether the neighbor entered without an account. */
+  const isAnonymous = computed(() => session.value?.user.is_anonymous ?? false)
   const accessToken = computed(() => session.value?.access_token ?? null)
 
   let initialization: Promise<void> | undefined
@@ -32,5 +34,5 @@ export const useSessionStore = defineStore('session', () => {
     session.value = data.session
   }
 
-  return { session, isAuthenticated, userId, accessToken, initialize, signInAsGuest }
+  return { session, isAuthenticated, isAnonymous, userId, accessToken, initialize, signInAsGuest }
 })

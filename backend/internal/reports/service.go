@@ -4,6 +4,7 @@ package reports
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,7 @@ const (
 	maxTitle        = 100
 	maxDetails      = 1000
 	maxReference    = 150
+	maxQuery        = 100
 	maxAuthorName   = 40
 	rateLimitCount  = 5
 	rateLimitWindow = 10 * time.Minute
@@ -49,6 +51,9 @@ type Repository interface {
 	// List returns up to params.Limit reports, newest first, continuing after
 	// the key in params.
 	List(ctx context.Context, params ListParams) ([]ReportSummary, error)
+	// Search returns up to params.Limit reports that contain every word, in
+	// the order of params, continuing after the key in params.
+	Search(ctx context.Context, params SearchParams) ([]SearchHit, error)
 }
 
 // PhotoStore is the file storage the service needs; implemented by
@@ -164,23 +169,9 @@ func (s *Service) Get(ctx context.Context, id string) (ReportDTO, error) {
 // signed link that expires after one hour. The cursor in the page continues
 // right after its last item; it is empty on the last page.
 func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO, error) {
-	limit := in.Limit
-	if limit == 0 {
-		limit = defaultPageSize
-	}
-	if limit < 1 || limit > maxPageSize {
-		return ReportPageDTO{}, invalid("limit must be between 1 and %d", maxPageSize)
-	}
-	if (in.Latitude == nil) != (in.Longitude == nil) {
-		return ReportPageDTO{}, invalid("latitude and longitude must be sent together")
-	}
-	if in.Latitude != nil {
-		if !inRange(*in.Latitude, 90) {
-			return ReportPageDTO{}, invalid("latitude must be between -90 and 90")
-		}
-		if !inRange(*in.Longitude, 180) {
-			return ReportPageDTO{}, invalid("longitude must be between -180 and 180")
-		}
+	limit, err := checkPaging(in.Limit, in.Latitude, in.Longitude)
+	if err != nil {
+		return ReportPageDTO{}, err
 	}
 
 	// One more than the page, to know whether there is a next page.
@@ -197,18 +188,117 @@ func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO,
 		return ReportPageDTO{}, fmt.Errorf("list reports: %w", err)
 	}
 
-	page := ReportPageDTO{Items: []ReportSummaryDTO{}}
+	page := ReportPageDTO{}
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[limit-1]
 		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
+	if page.Items, err = s.cards(ctx, rows); err != nil {
+		return ReportPageDTO{}, err
+	}
+	return page, nil
+}
+
+// Search returns one page of the search. A report matches when its title or
+// details contain every word of the query, ignoring case and accents. The
+// order is newest first, or nearest first with Sort "distance", which needs a
+// location. A query without words is only accepted when sorting by distance.
+// Covers are signed as in List. The cursor continues right after the last
+// item and only works with the order it was issued for; it is empty on the
+// last page.
+func (s *Service) Search(ctx context.Context, in SearchReportsInput) (ReportPageDTO, error) {
+	if utf8.RuneCountInString(in.Query) > maxQuery {
+		return ReportPageDTO{}, invalid("q must have at most %d characters", maxQuery)
+	}
+	var order SearchOrder
+	switch in.Sort {
+	case "", string(OrderRecent):
+		order = OrderRecent
+	case string(OrderDistance):
+		order = OrderDistance
+	default:
+		return ReportPageDTO{}, invalid("sort must be recent or distance")
+	}
+	limit, err := checkPaging(in.Limit, in.Latitude, in.Longitude)
+	if err != nil {
+		return ReportPageDTO{}, err
+	}
+	words := searchWords(in.Query)
+	if order == OrderRecent && len(words) == 0 {
+		return ReportPageDTO{}, invalid("q is required unless sorting by distance")
+	}
+	if order == OrderDistance && in.Latitude == nil {
+		return ReportPageDTO{}, invalid("sorting by distance needs latitude and longitude")
+	}
+
+	params := SearchParams{
+		Order:     order,
+		Words:     words,
+		Limit:     limit + 1, // one more than the page, to know whether there is a next page
+		Latitude:  in.Latitude,
+		Longitude: in.Longitude,
+	}
+	if in.Cursor != "" {
+		key, err := decodeSearchCursor(in.Cursor, order)
+		if err != nil {
+			return ReportPageDTO{}, err
+		}
+		params.HasAfter, params.After, params.AfterID, params.AfterDistance = true, key.CreatedAt, key.ID, key.Distance
+	}
+	hits, err := s.repo.Search(ctx, params)
+	if err != nil {
+		return ReportPageDTO{}, fmt.Errorf("search reports: %w", err)
+	}
+
+	page := ReportPageDTO{}
+	if len(hits) > limit {
+		hits = hits[:limit]
+		last := hits[limit-1]
+		page.NextCursor = encodeSearchCursor(order, last)
+	}
+	rows := make([]ReportSummary, len(hits))
+	for i, h := range hits {
+		rows[i] = h.ReportSummary
+	}
+	if page.Items, err = s.cards(ctx, rows); err != nil {
+		return ReportPageDTO{}, err
+	}
+	return page, nil
+}
+
+// checkPaging validates the page size and the optional location shared by the
+// feed and the search, and returns the page size to use.
+func checkPaging(limit int, lat, lng *float64) (int, error) {
+	if limit == 0 {
+		limit = defaultPageSize
+	}
+	if limit < 1 || limit > maxPageSize {
+		return 0, invalid("limit must be between 1 and %d", maxPageSize)
+	}
+	if (lat == nil) != (lng == nil) {
+		return 0, invalid("latitude and longitude must be sent together")
+	}
+	if lat != nil {
+		if !inRange(*lat, 90) {
+			return 0, invalid("latitude must be between -90 and 90")
+		}
+		if !inRange(*lng, 180) {
+			return 0, invalid("longitude must be between -180 and 180")
+		}
+	}
+	return limit, nil
+}
+
+// cards turns rows into cards, signing each cover for one hour.
+func (s *Service) cards(ctx context.Context, rows []ReportSummary) ([]ReportSummaryDTO, error) {
+	items := make([]ReportSummaryDTO, 0, len(rows))
 	for _, r := range rows {
 		link, err := s.photos.URL(ctx, r.CoverKey, photoLinkTTL)
 		if err != nil {
-			return ReportPageDTO{}, fmt.Errorf("sign cover of report %s: %w", r.ID, err)
+			return nil, fmt.Errorf("sign cover of report %s: %w", r.ID, err)
 		}
-		page.Items = append(page.Items, ReportSummaryDTO{
+		items = append(items, ReportSummaryDTO{
 			ID:             r.ID,
 			Title:          r.Title,
 			CategorySlug:   r.CategorySlug,
@@ -220,7 +310,57 @@ func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO,
 			DistanceMeters: r.Distance,
 		})
 	}
-	return page, nil
+	return items, nil
+}
+
+// searchWords splits the query on whitespace and escapes \, % and _ in each
+// word so that ILIKE treats them as plain text.
+func searchWords(q string) []string {
+	fields := strings.Fields(q)
+	words := make([]string, len(fields))
+	for i, f := range fields {
+		words[i] = likeEscaper.Replace(f)
+	}
+	return words
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// searchCursor is the key a search page continues after.
+type searchCursor struct {
+	Order     SearchOrder `json:"o"`
+	CreatedAt time.Time   `json:"t"`
+	ID        uuid.UUID   `json:"i"`
+	Distance  float64     `json:"d,omitempty"` // exact meters; only for OrderDistance
+}
+
+// encodeSearchCursor builds the opaque cursor that continues after hit: the
+// base64url of a JSON object that carries the order it belongs to.
+func encodeSearchCursor(order SearchOrder, hit SearchHit) string {
+	c := searchCursor{Order: order, CreatedAt: hit.CreatedAt.UTC(), ID: hit.ID}
+	if order == OrderDistance {
+		c.Distance = hit.ExactDistance
+	}
+	raw, _ := json.Marshal(c) // only strings, a time and a float: cannot fail
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// decodeSearchCursor is the inverse of encodeSearchCursor. A malformed value,
+// a feed cursor, or a cursor issued for another order is ErrInvalidCursor.
+func decodeSearchCursor(cursor string, order SearchOrder) (searchCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return searchCursor{}, ErrInvalidCursor
+	}
+	var c searchCursor
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return searchCursor{}, ErrInvalidCursor
+	}
+	if c.Order != order || c.ID == uuid.Nil || c.CreatedAt.IsZero() ||
+		math.IsNaN(c.Distance) || math.IsInf(c.Distance, 0) || c.Distance < 0 {
+		return searchCursor{}, ErrInvalidCursor
+	}
+	return c, nil
 }
 
 // encodeCursor builds the opaque cursor that continues after a report: the

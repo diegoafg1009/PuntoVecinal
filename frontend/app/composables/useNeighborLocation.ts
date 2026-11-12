@@ -65,13 +65,14 @@ export function useNeighborLocation() {
     }
   }
 
-  /** Called from the «Usar mi ubicación» button. */
+  /** Called from a button. Returns whether the location was obtained; if not, a toast says so. */
   async function share() {
-    if (await acquire()) return
+    if (await acquire()) return true
     toast.add({
       title: 'No pudimos obtener tu ubicación. Los reportes se muestran sin distancia.',
       color: 'error'
     })
+    return false
   }
 
   /** On a later visit: reuse the location silently, only if the browser already granted it. */

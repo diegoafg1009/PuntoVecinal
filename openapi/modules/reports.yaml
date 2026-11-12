@@ -120,6 +120,93 @@ paths:
               schema:
                 type: string
                 example: too many reports
+  /reports/search:
+    get:
+      operationId: searchReports
+      summary: Search reports
+      description: >-
+        Returns the published reports whose title or details contain every word
+        of `q`, ignoring case and accents, in pages with the same items as the
+        feed. The order is newest first (`sort=recent`, the default) or nearest
+        first (`sort=distance`, which needs `latitude` and `longitude`). `q` may
+        be left out only when ordering by distance, which lists every report
+        nearest first. Send `latitude` and `longitude` together to get the
+        distance to each report. Pass the `nextCursor` of a page as `cursor` to
+        get the following one; a cursor only works with the order it was issued
+        for.
+      tags: [reports]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: >-
+            Words to look for, separated by spaces. Text made only of spaces
+            counts as no words.
+          schema:
+            type: string
+            maxLength: 100
+        - name: sort
+          in: query
+          required: false
+          description: Order of the results.
+          schema:
+            type: string
+            enum: [recent, distance]
+            default: recent
+        - name: latitude
+          in: query
+          required: false
+          description: Latitude of the caller; must be sent together with `longitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          required: false
+          description: Longitude of the caller; must be sent together with `latitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor of the page to get, as returned in `nextCursor`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of reports in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: A page of reports, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPage"
+        "400":
+          description: >-
+            There are no words and the order is not by distance, the order is by
+            distance without a location, `q` is longer than 100 characters, the
+            cursor is not one the API issued for that order, the limit is out of
+            range, only one of latitude and longitude was sent, or a coordinate
+            is out of range.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: invalid cursor
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
   /reports/{id}:
     get:
       operationId: getReport

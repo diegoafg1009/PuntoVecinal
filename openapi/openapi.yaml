@@ -38,6 +38,8 @@ paths:
     $ref: ./modules/categories.yaml#/paths/~1categories
   /reports:
     $ref: ./modules/reports.yaml#/paths/~1reports
+  /reports/search:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1search
   /reports/{id}:
     $ref: ./modules/reports.yaml#/paths/~1reports~1{id}
 components:

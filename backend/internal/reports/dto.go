@@ -76,3 +76,14 @@ type ReportPageDTO struct {
 	Items      []ReportSummaryDTO
 	NextCursor string // empty on the last page
 }
+
+// SearchReportsInput is what the service needs to search a page of reports.
+// An empty Sort means newest first; a zero Limit means the default page size.
+type SearchReportsInput struct {
+	Query     string // words separated by spaces
+	Sort      string // "recent" or "distance"
+	Cursor    string // empty for the first page
+	Limit     int
+	Latitude  *float64
+	Longitude *float64
+}

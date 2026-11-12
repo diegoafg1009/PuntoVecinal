@@ -60,6 +60,8 @@ async function discardAndLeave() {
     <div class="flex flex-1 flex-col gap-4 p-4">
       <UStepper :model-value="draft.step - 1" :items="steps" disabled size="sm" class="w-full" />
 
+      <ReportEmergencyNotice />
+
       <ReportStepWhatHappens v-if="draft.step === 1" />
       <ReportStepPhotoAndPlace v-else-if="draft.step === 2" />
       <ReportStepReview v-else />

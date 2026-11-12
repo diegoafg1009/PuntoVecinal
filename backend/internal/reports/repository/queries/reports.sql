@@ -78,3 +78,80 @@ WHERE sqlc.narg('after_created_at')::timestamptz IS NULL
    OR (r.created_at, r.id) < (sqlc.narg('after_created_at')::timestamptz, sqlc.narg('after_id')::uuid)
 ORDER BY r.created_at DESC, r.id DESC
 LIMIT @row_limit;
+
+-- name: SearchReportsRecent :many
+-- One page of the search, newest first, continuing after the (created_at, id)
+-- key when one is given. A report matches when every word in @words (already
+-- split and escaped for ILIKE; an empty array matches everything) appears in
+-- its title or details, ignoring case and accents. The distance is as in
+-- ListReports: -1 means no location. Never selects author_id nor author_name.
+SELECT
+  r.id,
+  r.title,
+  r.category_slug,
+  c.label AS category_label,
+  r.status,
+  r.reference,
+  r.created_at,
+  p.storage_key AS cover_key,
+  CASE
+    WHEN sqlc.narg('lat')::float8 IS NULL THEN -1
+    ELSE round(ST_Distance(
+      r.location,
+      ST_SetSRID(ST_MakePoint(sqlc.narg('lng')::float8, sqlc.narg('lat')::float8), 4326)::geography
+    ))::int
+  END AS distance_meters
+FROM reports r
+JOIN categories c ON c.slug = r.category_slug
+JOIN report_photos p ON p.report_id = r.id AND p.position = 1
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest(@words::text[]) AS w
+    WHERE extensions.unaccent(r.title || ' ' || coalesce(r.details, ''))
+          NOT ILIKE '%' || extensions.unaccent(w) || '%'
+  )
+  AND (
+    sqlc.narg('after_created_at')::timestamptz IS NULL
+    OR (r.created_at, r.id) < (sqlc.narg('after_created_at')::timestamptz, sqlc.narg('after_id')::uuid)
+  )
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT @row_limit;
+
+-- name: SearchReportsNearest :many
+-- One page of the search, nearest first to (@lat, @lng), ties going to the
+-- newest. The keyset is (distance, created_at, id): a report comes after the
+-- cursor when it is farther, or at the same exact distance and older. The
+-- exact distance is returned for the cursor, and distance_meters is the same
+-- distance rounded to whole meters.
+-- Never selects author_id nor author_name.
+SELECT found.*, round(found.distance)::int AS distance_meters
+FROM (
+  SELECT
+    r.id,
+    r.title,
+    r.category_slug,
+    c.label AS category_label,
+    r.status,
+    r.reference,
+    r.created_at,
+    p.storage_key AS cover_key,
+    ST_Distance(
+      r.location,
+      ST_SetSRID(ST_MakePoint(@lng::float8, @lat::float8), 4326)::geography
+    )::float8 AS distance
+  FROM reports r
+  JOIN categories c ON c.slug = r.category_slug
+  JOIN report_photos p ON p.report_id = r.id AND p.position = 1
+  WHERE NOT EXISTS (
+    SELECT 1 FROM unnest(@words::text[]) AS w
+    WHERE extensions.unaccent(r.title || ' ' || coalesce(r.details, ''))
+          NOT ILIKE '%' || extensions.unaccent(w) || '%'
+  )
+) AS found
+WHERE sqlc.narg('after_distance')::float8 IS NULL
+   OR found.distance > sqlc.narg('after_distance')::float8
+   OR (
+     found.distance = sqlc.narg('after_distance')::float8
+     AND (found.created_at, found.id) < (sqlc.narg('after_created_at')::timestamptz, sqlc.narg('after_id')::uuid)
+   )
+ORDER BY found.distance ASC, found.created_at DESC, found.id DESC
+LIMIT @row_limit;

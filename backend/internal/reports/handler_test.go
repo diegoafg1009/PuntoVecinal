@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -502,6 +503,157 @@ func TestListReportsServerError(t *testing.T) {
 	h, repo, _ := newRouter(t)
 	repo.listErr = errors.New("db down")
 	if w := listReports(h, "Bearer good", ""); w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func searchReports(h http.Handler, authorization, query string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, "/reports/search"+query, nil)
+	if authorization != "" {
+		r.Header.Set("Authorization", authorization)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+func TestSearchReportsReturnsItemsInOrder(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.searchHits = hits(3)
+	d := 80
+	repo.searchHits[0].Distance = &d
+
+	w := searchReports(h, "Bearer good", "?q=poste")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
+	}
+	var got listBody
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 3 || got.NextCursor != nil {
+		t.Fatalf("items = %d, nextCursor = %v", len(got.Items), got.NextCursor)
+	}
+	for i, item := range got.Items {
+		if item["id"] != repo.searchHits[i].ID.String() {
+			t.Errorf("item %d id = %v, want %v", i, item["id"], repo.searchHits[i].ID)
+		}
+	}
+	if got.Items[0]["distanceMeters"] != float64(80) || got.Items[1]["distanceMeters"] != nil {
+		t.Errorf("distances = %v, %v", got.Items[0]["distanceMeters"], got.Items[1]["distanceMeters"])
+	}
+	if want := []string{"poste"}; !reflect.DeepEqual(repo.searchParams.Words, want) {
+		t.Errorf("words = %q, want %q", repo.searchParams.Words, want)
+	}
+}
+
+func TestSearchRouteIsNotTakenAsAReportID(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.searchHits = hits(1)
+	repo.getErr = errors.New("Get must not be called")
+
+	if w := searchReports(h, "Bearer good", "?q=a"); w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
+	}
+	// A report id still reaches GetReport.
+	repo.getErr = nil
+	if w := getReport(h, "Bearer good", uuid.NewString()); w.Code != http.StatusNotFound {
+		t.Errorf("GET /reports/{id}: status = %d, want 404", w.Code)
+	}
+}
+
+func TestSearchReportsDistanceOrderAndCursor(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.searchHits = hits(3)
+
+	w := searchReports(h, "Bearer good", "?sort=distance&latitude=-11.93&longitude=-77.05&limit=2")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
+	}
+	var first listBody
+	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 2 || first.NextCursor == nil {
+		t.Fatalf("first page = %+v", first)
+	}
+	if repo.searchParams.Order != OrderDistance {
+		t.Errorf("order = %q, want distance", repo.searchParams.Order)
+	}
+
+	w = searchReports(h, "Bearer good", "?sort=distance&latitude=-11.93&longitude=-77.05&limit=2&cursor="+*first.NextCursor)
+	if w.Code != http.StatusOK {
+		t.Fatalf("second page status = %d, body = %s", w.Code, w.Body)
+	}
+	if p := repo.searchParams; !p.HasAfter || p.AfterID != repo.searchHits[1].ID || p.AfterDistance != repo.searchHits[1].ExactDistance {
+		t.Errorf("params = %+v", p)
+	}
+}
+
+func TestSearchReportsEmpty(t *testing.T) {
+	h, _, _ := newRouter(t)
+	w := searchReports(h, "Bearer good", "?q=xyz")
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"items":[],"nextCursor":null}` {
+		t.Errorf("status = %d, body = %s", w.Code, w.Body)
+	}
+}
+
+func TestSearchReportsBadRequests(t *testing.T) {
+	h0, repo0, _ := newRouter(t)
+	repo0.searchHits = hits(3)
+	recent := searchReports(h0, "Bearer good", "?q=a&limit=2")
+	var page listBody
+	if err := json.Unmarshal(recent.Body.Bytes(), &page); err != nil || page.NextCursor == nil {
+		t.Fatalf("setup: %v, %+v", err, page)
+	}
+
+	for name, query := range map[string]string{
+		"missing q":                "",
+		"blank q":                  "?q=%20%20",
+		"distance without place":   "?sort=distance",
+		"q with 101 characters":    "?q=" + strings.Repeat("a", 101),
+		"bad cursor":               "?q=a&cursor=***",
+		"cursor of the other sort": "?sort=distance&latitude=-11&longitude=-77&cursor=" + *page.NextCursor,
+		"unknown sort":             "?q=a&sort=oldest",
+		"limit zero":               "?q=a&limit=0",
+		"limit too large":          "?q=a&limit=51",
+		"only latitude":            "?q=a&latitude=-11.9",
+		"latitude range":           "?q=a&latitude=91&longitude=-77",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, _, _ := newRouter(t)
+			if w := searchReports(h, "Bearer good", query); w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400, body = %s", w.Code, w.Body)
+			}
+		})
+	}
+}
+
+func TestSearchReportsRequiresAValidToken(t *testing.T) {
+	h, _, _ := newRouter(t)
+	for _, authorization := range []string{"", "Bearer bad"} {
+		if w := searchReports(h, authorization, "?q=a"); w.Code != http.StatusUnauthorized {
+			t.Errorf("Authorization %q: status = %d, want 401", authorization, w.Code)
+		}
+	}
+}
+
+func TestSearchReportsNeverExposesTheAuthorOrDetails(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.searchHits = hits(2)
+
+	body := strings.ToLower(searchReports(h, "Bearer good", "?q=a").Body.String())
+	for _, forbidden := range []string{"authorname", "authorid", "author_id", "details", "userid", testUserID} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("response contains %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestSearchReportsServerError(t *testing.T) {
+	h, repo, _ := newRouter(t)
+	repo.searchErr = errors.New("db down")
+	if w := searchReports(h, "Bearer good", "?q=a"); w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }

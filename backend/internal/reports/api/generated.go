@@ -69,6 +69,24 @@ func (e ReportStatus) Valid() bool {
 	}
 }
 
+// Defines values for SearchReportsParamsSort.
+const (
+	Distance SearchReportsParamsSort = "distance"
+	Recent   SearchReportsParamsSort = "recent"
+)
+
+// Valid indicates whether the value is a known member of the SearchReportsParamsSort enum.
+func (e SearchReportsParamsSort) Valid() bool {
+	switch e {
+	case Distance:
+		return true
+	case Recent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Category defines model for Category.
 type Category struct {
 	// Label Name shown to neighbors, in Spanish.
@@ -195,6 +213,30 @@ type ListReportsParams struct {
 	Longitude *float64 `form:"longitude,omitempty" json:"longitude,omitempty"`
 }
 
+// SearchReportsParams defines parameters for SearchReports.
+type SearchReportsParams struct {
+	// Q Words to look for, separated by spaces. Text made only of spaces counts as no words.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Sort Order of the results.
+	Sort *SearchReportsParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Latitude Latitude of the caller; must be sent together with `longitude`.
+	Latitude *float64 `form:"latitude,omitempty" json:"latitude,omitempty"`
+
+	// Longitude Longitude of the caller; must be sent together with `latitude`.
+	Longitude *float64 `form:"longitude,omitempty" json:"longitude,omitempty"`
+
+	// Cursor Opaque cursor of the page to get, as returned in `nextCursor`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of reports in the page.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchReportsParamsSort defines parameters for SearchReports.
+type SearchReportsParamsSort string
+
 // CreateReportMultipartRequestBody defines body for CreateReport for multipart/form-data ContentType.
 type CreateReportMultipartRequestBody = CreateReportRequest
 
@@ -206,6 +248,9 @@ type ServerInterface interface {
 	// CreateReport Publish a report
 	// (POST /reports)
 	CreateReport(w http.ResponseWriter, r *http.Request)
+	// SearchReports Search reports
+	// (GET /reports/search)
+	SearchReports(w http.ResponseWriter, r *http.Request, params SearchReportsParams)
 	// GetReport Get a report
 	// (GET /reports/{id})
 	GetReport(w http.ResponseWriter, r *http.Request, id string)
@@ -224,6 +269,12 @@ func (_ Unimplemented) ListReports(w http.ResponseWriter, r *http.Request, param
 // CreateReport Publish a report
 // (POST /reports)
 func (_ Unimplemented) CreateReport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SearchReports Search reports
+// (GET /reports/search)
+func (_ Unimplemented) SearchReports(w http.ResponseWriter, r *http.Request, params SearchReportsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -319,6 +370,104 @@ func (siw *ServerInterfaceWrapper) CreateReport(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateReport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchReports operation middleware
+func (siw *ServerInterfaceWrapper) SearchReports(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchReportsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "latitude" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "latitude", r.URL.Query(), &params.Latitude, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "latitude"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "latitude", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "longitude" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "longitude", r.URL.Query(), &params.Longitude, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "longitude"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "longitude", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchReports(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -474,6 +623,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/reports", wrapper.CreateReport)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/reports/search", wrapper.SearchReports)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/reports/{id}", wrapper.GetReport)
 	})
 
@@ -604,6 +756,50 @@ func (response CreateReport429TextResponse) VisitCreateReportResponse(w http.Res
 	return err
 }
 
+type SearchReportsRequestObject struct {
+	Params SearchReportsParams
+}
+
+type SearchReportsResponseObject interface {
+	VisitSearchReportsResponse(w http.ResponseWriter) error
+}
+
+type SearchReports200JSONResponse ReportPage
+
+func (response SearchReports200JSONResponse) VisitSearchReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchReports400TextResponse string
+
+func (response SearchReports400TextResponse) VisitSearchReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(400)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type SearchReports401TextResponse UnauthorizedTextResponse
+
+func (response SearchReports401TextResponse) VisitSearchReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
 type GetReportRequestObject struct {
 	Id string `json:"id"`
 }
@@ -656,6 +852,9 @@ type StrictServerInterface interface {
 	// CreateReport Publish a report
 	// (POST /reports)
 	CreateReport(ctx context.Context, request CreateReportRequestObject) (CreateReportResponseObject, error)
+	// SearchReports Search reports
+	// (GET /reports/search)
+	SearchReports(ctx context.Context, request SearchReportsRequestObject) (SearchReportsResponseObject, error)
 	// GetReport Get a report
 	// (GET /reports/{id})
 	GetReport(ctx context.Context, request GetReportRequestObject) (GetReportResponseObject, error)
@@ -757,6 +956,32 @@ func (sh *strictHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// SearchReports operation middleware
+func (sh *strictHandler) SearchReports(w http.ResponseWriter, r *http.Request, params SearchReportsParams) {
+	var request SearchReportsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchReports(ctx, request.(SearchReportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchReports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchReportsResponseObject); ok {
+		if err := validResponse.VisitSearchReportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetReport operation middleware
 func (sh *strictHandler) GetReport(w http.ResponseWriter, r *http.Request, id string) {
 	var request GetReportRequestObject
@@ -788,48 +1013,54 @@ func (sh *strictHandler) GetReport(w http.ResponseWriter, r *http.Request, id st
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"TzrLxTdifbv+zwA=",
+	"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",
+	"AA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
