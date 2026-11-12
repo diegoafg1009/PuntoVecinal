@@ -114,7 +114,7 @@ func (v *Voyage) Embed(ctx context.Context, text string) (pgvector.Vector, error
 	if err != nil {
 		return pgvector.Vector{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return pgvector.Vector{}, fmt.Errorf("%w: status %d", ErrUnavailable, res.StatusCode)
