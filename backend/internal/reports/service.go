@@ -232,15 +232,8 @@ func (s *Service) Map(ctx context.Context, in MapInput) ([]ReportPinDTO, error) 
 	}
 	items := make([]ReportPinDTO, len(pins))
 	for i, p := range pins {
-		items[i] = ReportPinDTO{
-			ID:            p.ID,
-			Title:         p.Title,
-			CategorySlug:  p.CategorySlug,
-			CategoryLabel: p.CategoryLabel,
-			Status:        p.Status,
-			Latitude:      p.Latitude,
-			Longitude:     p.Longitude,
-		}
+		// Same fields as the entity, none of them the author: a plain conversion.
+		items[i] = ReportPinDTO(p)
 	}
 	return items, nil
 }
