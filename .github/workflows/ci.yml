@@ -171,7 +171,8 @@ jobs:
       - name: Build
         run: bun run build
 
-  # Applies every migration from scratch on a local Supabase stack and lints the schema.
+  # Applies every migration from scratch on a local Supabase stack and lints our schema.
+  # Only `public` is linted: PostGIS (schema `extensions`) ships functions that fail the lint.
   database:
     name: Database (Supabase)
     needs: changes
@@ -187,7 +188,7 @@ jobs:
       - name: Apply migrations from scratch
         run: supabase db reset
       - name: Lint the schema
-        run: supabase db lint --fail-on error
+        run: supabase db lint --schema public --fail-on error
       - name: Run database tests
         run: |
           if [ -d supabase/tests ]; then supabase test db; else echo "No database tests yet."; fi
