@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -15,7 +17,11 @@ const testSpec = `{
   "security": [{"bearerAuth": []}],
   "paths": {
     "/open":   {"get": {"security": [], "responses": {"200": {"description": "ok"}}}},
-    "/closed": {"get": {"responses": {"200": {"description": "ok"}}}}
+    "/closed": {"get": {"responses": {"200": {"description": "ok"}}}},
+    "/upload": {"post": {
+      "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}}}},
+      "responses": {"200": {"description": "ok"}}
+    }}
   },
   "components": {"securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}}
 }`
@@ -108,5 +114,72 @@ func TestAuthFuncRejectsOtherSchemes(t *testing.T) {
 	err := fn(t.Context(), &openapi3filter.AuthenticationInput{SecuritySchemeName: "apiKey"})
 	if err == nil {
 		t.Fatal("expected an error for a scheme other than bearerAuth")
+	}
+}
+
+// countingBody records how many bytes were read from it.
+type countingBody struct {
+	r    io.Reader
+	read int
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.read += n
+	return n, err
+}
+func (b *countingBody) Close() error { return nil }
+
+func TestMiddlewareLeavesTheBodyToTheHandler(t *testing.T) {
+	spec, err := openapi3.NewLoader().LoadFromData([]byte(testSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := newKey(t)
+	v := newTestVerifier(t, key)
+	token := sign(t, key, validClaims(true))
+
+	var seen string
+	h := Middleware(spec, v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seen = string(b)
+	}))
+
+	// Not a multipart body that matches the contract: it must not be validated.
+	r := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("raw-bytes"))
+	r.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if seen != "raw-bytes" {
+		t.Errorf("handler read %q, want the untouched body", seen)
+	}
+}
+
+func TestMiddlewareDoesNotReadTheBodyOfRejectedRequests(t *testing.T) {
+	spec, err := openapi3.NewLoader().LoadFromData([]byte(testSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := newKey(t)
+	h := Middleware(spec, newTestVerifier(t, key))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("handler reached without a token")
+	}))
+
+	body := &countingBody{r: strings.NewReader(strings.Repeat("x", 1<<16))}
+	r := httptest.NewRequest(http.MethodPost, "/upload", body)
+	r.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+	if body.read != 0 {
+		t.Errorf("%d bytes of the body were read before rejecting", body.read)
 	}
 }

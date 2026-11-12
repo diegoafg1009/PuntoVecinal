@@ -20,6 +20,79 @@ export type Category = {
     label: string;
 };
 
+export type CreateReportRequest = {
+    /**
+     * Slug of one of the fixed categories.
+     */
+    category: string;
+    /**
+     * What happens, up to 100 characters. Blank titles are rejected.
+     */
+    title: string;
+    details?: string;
+    /**
+     * Free text that helps to find the place.
+     */
+    reference?: string;
+    latitude: number;
+    longitude: number;
+    /**
+     * Public name of the author. Left out, empty or only spaces means the report appears as "Vecino anónimo".
+     */
+    authorName?: string;
+    /**
+     * JPEG or PNG photos, in display order.
+     */
+    photos: Array<Blob | File>;
+};
+
+export type CreatedReport = {
+    id: string;
+    status: 'publicado';
+};
+
+/**
+ * Status of a report. Statuses only move forward.
+ */
+export type ReportStatus = 'publicado' | 'derivado' | 'recibido' | 'en_atencion' | 'atendido' | 'cerrado';
+
+export type Location = {
+    latitude: number;
+    longitude: number;
+};
+
+export type ReportPhoto = {
+    /**
+     * Signed link to the photo, valid for one hour.
+     */
+    url: string;
+};
+
+export type Report = {
+    id: string;
+    title: string;
+    details: string | null;
+    category: Category;
+    status: ReportStatus;
+    location: Location;
+    /**
+     * Free text that helps to find the place.
+     */
+    reference: string | null;
+    /**
+     * Public name of the author; null means "Vecino anónimo".
+     */
+    authorName: string | null;
+    /**
+     * When the report was published.
+     */
+    createdAt: string;
+    /**
+     * Photos in display order.
+     */
+    photos: Array<ReportPhoto>;
+};
+
 export type GetHealthzData = {
     body?: never;
     path?: never;
@@ -92,3 +165,74 @@ export type ListCategoriesResponses = {
 };
 
 export type ListCategoriesResponse = ListCategoriesResponses[keyof ListCategoriesResponses];
+
+export type CreateReportData = {
+    body: CreateReportRequest;
+    path?: never;
+    query?: never;
+    url: '/reports';
+};
+
+export type CreateReportErrors = {
+    /**
+     * The data is invalid: unknown category, blank or too long title, details, reference or author name too long, location missing or out of range, a photo count outside 1 to 3, or a file that is not an image.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * A photo, or the whole request, is larger than allowed.
+     */
+    413: string;
+    /**
+     * The neighbor published too many reports in a short time.
+     */
+    429: string;
+};
+
+export type CreateReportError = CreateReportErrors[keyof CreateReportErrors];
+
+export type CreateReportResponses = {
+    /**
+     * The report was published.
+     */
+    201: CreatedReport;
+};
+
+export type CreateReportResponse = CreateReportResponses[keyof CreateReportResponses];
+
+export type GetReportData = {
+    body?: never;
+    path: {
+        /**
+         * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/reports/{id}';
+};
+
+export type GetReportErrors = {
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The resource does not exist.
+     */
+    404: string;
+};
+
+export type GetReportError = GetReportErrors[keyof GetReportErrors];
+
+export type GetReportResponses = {
+    /**
+     * The report.
+     */
+    200: Report;
+};
+
+export type GetReportResponse = GetReportResponses[keyof GetReportResponses];

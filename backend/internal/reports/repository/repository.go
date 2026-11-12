@@ -1,0 +1,120 @@
+// Package repository is the database access of the reports module. The
+// sqlc/ folder is generated; this file adapts it to the module's domain.
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/reports"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/reports/repository/sqlc"
+)
+
+// PgRepository stores reports in PostgreSQL through the sqlc queries. It
+// satisfies reports.Repository, which the service defines.
+type PgRepository struct {
+	pool    *pgxpool.Pool
+	queries *sqlc.Queries
+}
+
+func NewPgRepository(pool *pgxpool.Pool) *PgRepository {
+	return &PgRepository{pool: pool, queries: sqlc.New(pool)}
+}
+
+// CategoryExists tells whether slug is one of the fixed categories.
+func (r *PgRepository) CategoryExists(ctx context.Context, slug string) (bool, error) {
+	return r.queries.CategoryExists(ctx, slug)
+}
+
+// CountRecent summarizes the reports authorID published since the given time.
+func (r *PgRepository) CountRecent(ctx context.Context, authorID uuid.UUID, since time.Time) (reports.RecentReports, error) {
+	row, err := r.queries.CountRecentReports(ctx, sqlc.CountRecentReportsParams{
+		AuthorID: pgUUID(authorID),
+		Since:    pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	if err != nil {
+		return reports.RecentReports{}, err
+	}
+	recent := reports.RecentReports{Count: int(row.Total)}
+	if row.Oldest.Valid {
+		recent.Oldest = row.Oldest.Time
+	}
+	return recent, nil
+}
+
+// Create stores the report and its photos in one transaction.
+func (r *PgRepository) Create(ctx context.Context, report reports.Report) error {
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		if err := q.InsertReport(ctx, sqlc.InsertReportParams{
+			ID:           pgUUID(report.ID),
+			AuthorID:     pgUUID(report.AuthorID),
+			CategorySlug: report.CategorySlug,
+			Title:        report.Title,
+			Details:      pgText(report.Details),
+			Reference:    pgText(report.Reference),
+			Longitude:    report.Longitude,
+			Latitude:     report.Latitude,
+			AuthorName:   pgText(report.AuthorName),
+		}); err != nil {
+			return fmt.Errorf("insert report: %w", err)
+		}
+		for _, p := range report.Photos {
+			if err := q.InsertReportPhoto(ctx, sqlc.InsertReportPhotoParams{
+				ReportID:   pgUUID(report.ID),
+				Position:   int16(p.Position),
+				StorageKey: p.StorageKey,
+			}); err != nil {
+				return fmt.Errorf("insert photo %d: %w", p.Position, err)
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+// Get returns the report with its photos in order, or reports.ErrNotFound.
+func (r *PgRepository) Get(ctx context.Context, id uuid.UUID) (reports.Report, error) {
+	row, err := r.queries.GetReport(ctx, pgUUID(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return reports.Report{}, reports.ErrNotFound
+	}
+	if err != nil {
+		return reports.Report{}, err
+	}
+	photos, err := r.queries.ListReportPhotos(ctx, pgUUID(id))
+	if err != nil {
+		return reports.Report{}, fmt.Errorf("list photos: %w", err)
+	}
+
+	report := reports.Report{
+		ID:            row.ID.Bytes,
+		CategorySlug:  row.CategorySlug,
+		CategoryLabel: row.CategoryLabel,
+		Status:        string(row.Status),
+		CreatedAt:     row.CreatedAt.Time,
+		Title:         row.Title,
+		Details:       row.Details.String,
+		Reference:     row.Reference.String,
+		Latitude:      row.Latitude,
+		Longitude:     row.Longitude,
+		AuthorName:    row.AuthorName.String,
+		Photos:        make([]reports.Photo, len(photos)),
+	}
+	for i, p := range photos {
+		report.Photos[i] = reports.Photo{Position: int(p.Position), StorageKey: p.StorageKey}
+	}
+	return report, nil
+}
+
+func pgUUID(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
+
+// pgText maps the empty string to NULL.
+func pgText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }

@@ -11,6 +11,9 @@ import (
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories/repository"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/config"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/storage"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/reports"
+	reportsrepo "github.com/diegoafg1009/PuntoVecinal/backend/internal/reports/repository"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/system"
 )
 
@@ -19,6 +22,8 @@ type Server struct {
 
 	db         system.Pinger
 	categories categories.Repository
+	reports    reports.Repository
+	photos     reports.PhotoStore
 	verifier   auth.RequestVerifier
 }
 
@@ -27,6 +32,8 @@ func NewServer(cfg config.Config, db *pgxpool.Pool, verifier auth.RequestVerifie
 		port:       cfg.App.Port,
 		db:         db,
 		categories: repository.NewPgRepository(db),
+		reports:    reportsrepo.NewPgRepository(db),
+		photos:     storage.NewS3(cfg.S3),
 		verifier:   verifier,
 	}
 

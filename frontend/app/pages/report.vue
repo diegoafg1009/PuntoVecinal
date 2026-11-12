@@ -62,10 +62,7 @@ async function discardAndLeave() {
 
       <ReportStepWhatHappens v-if="draft.step === 1" />
       <ReportStepPhotoAndPlace v-else-if="draft.step === 2" />
-      <div v-else class="flex flex-col items-center gap-4 py-10 text-center text-muted">
-        <p>Próximamente</p>
-        <UButton label="‹ Volver" color="neutral" variant="outline" @click="draft.step = 1" />
-      </div>
+      <ReportStepReview v-else />
     </div>
 
     <UModal

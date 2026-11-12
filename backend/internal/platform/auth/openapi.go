@@ -46,12 +46,27 @@ func NewAuthFunc(v RequestVerifier) openapi3filter.AuthenticationFunc {
 // Middleware applies the security requirements declared in spec: operations
 // with `security: []` pass without a token, every other operation needs a
 // valid bearer token, and paths that are not in spec get 404.
+//
+// Request bodies are not validated here: handlers and services validate their
+// own input. The validator also never sees the body (it would read all of it
+// into memory, even before checking the token, which matters for photo
+// uploads); the handler gets it back once the request is accepted.
 func Middleware(spec *openapi3.T, v RequestVerifier) func(http.Handler) http.Handler {
-	return nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		Options:               openapi3filter.Options{AuthenticationFunc: NewAuthFunc(v)},
+	validate := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
+		Options:               openapi3filter.Options{AuthenticationFunc: NewAuthFunc(v), ExcludeRequestBody: true},
 		ErrorHandlerWithOpts:  handleValidationError,
 		SilenceServersWarning: true,
 	})
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body := r.Body
+			r.Body = http.NoBody
+			validate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r.Body = body
+				next.ServeHTTP(w, r)
+			})).ServeHTTP(w, r)
+		})
+	}
 }
 
 func handleValidationError(ctx context.Context, err error, w http.ResponseWriter, _ *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
