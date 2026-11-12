@@ -25,6 +25,19 @@ type Querier interface {
 	// when a location is given: -1 means no location (sqlc cannot type a nullable
 	// expression). Never selects author_id nor author_name.
 	ListReports(ctx context.Context, arg ListReportsParams) ([]ListReportsRow, error)
+	// One page of the search, nearest first to (@lat, @lng), ties going to the
+	// newest. The keyset is (distance, created_at, id): a report comes after the
+	// cursor when it is farther, or at the same exact distance and older. The
+	// exact distance is returned for the cursor, and distance_meters is the same
+	// distance rounded to whole meters.
+	// Never selects author_id nor author_name.
+	SearchReportsNearest(ctx context.Context, arg SearchReportsNearestParams) ([]SearchReportsNearestRow, error)
+	// One page of the search, newest first, continuing after the (created_at, id)
+	// key when one is given. A report matches when every word in @words (already
+	// split and escaped for ILIKE; an empty array matches everything) appears in
+	// its title or details, ignoring case and accents. The distance is as in
+	// ListReports: -1 means no location. Never selects author_id nor author_name.
+	SearchReportsRecent(ctx context.Context, arg SearchReportsRecentParams) ([]SearchReportsRecentRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -280,6 +280,60 @@ export type CreateReportResponses = {
 
 export type CreateReportResponse = CreateReportResponses[keyof CreateReportResponses];
 
+export type SearchReportsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Words to look for, separated by spaces. Text made only of spaces counts as no words.
+         */
+        q?: string;
+        /**
+         * Order of the results.
+         */
+        sort?: 'recent' | 'distance';
+        /**
+         * Latitude of the caller; must be sent together with `longitude`.
+         */
+        latitude?: number;
+        /**
+         * Longitude of the caller; must be sent together with `latitude`.
+         */
+        longitude?: number;
+        /**
+         * Opaque cursor of the page to get, as returned in `nextCursor`.
+         */
+        cursor?: string;
+        /**
+         * Maximum number of reports in the page.
+         */
+        limit?: number;
+    };
+    url: '/reports/search';
+};
+
+export type SearchReportsErrors = {
+    /**
+     * There are no words and the order is not by distance, the order is by distance without a location, `q` is longer than 100 characters, the cursor is not one the API issued for that order, the limit is out of range, only one of latitude and longitude was sent, or a coordinate is out of range.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+};
+
+export type SearchReportsError = SearchReportsErrors[keyof SearchReportsErrors];
+
+export type SearchReportsResponses = {
+    /**
+     * A page of reports, possibly empty.
+     */
+    200: ReportPage;
+};
+
+export type SearchReportsResponse = SearchReportsResponses[keyof SearchReportsResponses];
+
 export type GetReportData = {
     body?: never;
     path: {

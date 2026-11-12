@@ -93,6 +93,38 @@ func (h *Handler) ListReports(ctx context.Context, req api.ListReportsRequestObj
 		return nil, err
 	}
 
+	return api.ListReports200JSONResponse(toAPIPage(page)), nil
+}
+
+// SearchReports implements the searchReports operation of the contract.
+func (h *Handler) SearchReports(ctx context.Context, req api.SearchReportsRequestObject) (api.SearchReportsResponseObject, error) {
+	p := req.Params
+	in := SearchReportsInput{Latitude: p.Latitude, Longitude: p.Longitude}
+	if p.Q != nil {
+		in.Query = *p.Q
+	}
+	if p.Sort != nil {
+		in.Sort = string(*p.Sort)
+	}
+	if p.Cursor != nil {
+		in.Cursor = *p.Cursor
+	}
+	if p.Limit != nil {
+		in.Limit = *p.Limit
+	}
+
+	page, err := h.service.Search(ctx, in)
+	switch {
+	case errors.Is(err, ErrInvalidReport), errors.Is(err, ErrInvalidCursor):
+		return api.SearchReports400TextResponse(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+	return api.SearchReports200JSONResponse(toAPIPage(page)), nil
+}
+
+// toAPIPage maps a page of cards to the contract's ReportPage.
+func toAPIPage(page ReportPageDTO) api.ReportPage {
 	items := make([]api.ReportSummary, len(page.Items))
 	for i, r := range page.Items {
 		items[i] = api.ReportSummary{
@@ -106,7 +138,7 @@ func (h *Handler) ListReports(ctx context.Context, req api.ListReportsRequestObj
 			DistanceMeters: r.DistanceMeters,
 		}
 	}
-	return api.ListReports200JSONResponse{Items: items, NextCursor: optional(page.NextCursor)}, nil
+	return api.ReportPage{Items: items, NextCursor: optional(page.NextCursor)}
 }
 
 // GetReport implements the getReport operation of the contract.

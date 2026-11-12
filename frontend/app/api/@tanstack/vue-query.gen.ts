@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/vue-query';
 
 import { client } from '../client.gen';
-import { createReport, getHealthz, getMe, getReport, listCategories, listReports, type Options } from '../sdk.gen';
-import type { CreateReportData, CreateReportError, CreateReportResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportsData, ListReportsError, ListReportsResponse } from '../types.gen';
+import { createReport, getHealthz, getMe, getReport, listCategories, listReports, type Options, searchReports } from '../sdk.gen';
+import type { CreateReportData, CreateReportError, CreateReportResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportsData, ListReportsError, ListReportsResponse, SearchReportsData, SearchReportsError, SearchReportsResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -197,6 +197,58 @@ export const createReportMutation = (options?: Partial<Options<CreateReportData>
         }
     };
     return mutationOptions;
+};
+
+export const searchReportsQueryKey = (options?: Options<SearchReportsData>) => createQueryKey('searchReports', options);
+
+/**
+ * Search reports
+ *
+ * Returns the published reports whose title or details contain every word of `q`, ignoring case and accents, in pages with the same items as the feed. The order is newest first (`sort=recent`, the default) or nearest first (`sort=distance`, which needs `latitude` and `longitude`). `q` may be left out only when ordering by distance, which lists every report nearest first. Send `latitude` and `longitude` together to get the distance to each report. Pass the `nextCursor` of a page as `cursor` to get the following one; a cursor only works with the order it was issued for.
+ */
+export const searchReportsOptions = (options?: Options<SearchReportsData>) => queryOptions<SearchReportsResponse, SearchReportsError, SearchReportsResponse, ReturnType<typeof searchReportsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await searchReports({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: searchReportsQueryKey(options)
+});
+
+export const searchReportsInfiniteQueryKey = (options?: Options<SearchReportsData>): QueryKey<Options<SearchReportsData>> => createQueryKey('searchReports', options, true);
+
+/**
+ * Search reports
+ *
+ * Returns the published reports whose title or details contain every word of `q`, ignoring case and accents, in pages with the same items as the feed. The order is newest first (`sort=recent`, the default) or nearest first (`sort=distance`, which needs `latitude` and `longitude`). `q` may be left out only when ordering by distance, which lists every report nearest first. Send `latitude` and `longitude` together to get the distance to each report. Pass the `nextCursor` of a page as `cursor` to get the following one; a cursor only works with the order it was issued for.
+ */
+export const searchReportsInfiniteOptions = (options?: Options<SearchReportsData>) => {
+    const opts = infiniteQueryOptions<SearchReportsResponse, SearchReportsError, InfiniteData<SearchReportsResponse>, QueryKey<Options<SearchReportsData>>, string | Pick<QueryKey<Options<SearchReportsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<SearchReportsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    cursor: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await searchReports({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: searchReportsInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
 };
 
 export const getReportQueryKey = (options: Options<GetReportData>) => createQueryKey('getReport', options);

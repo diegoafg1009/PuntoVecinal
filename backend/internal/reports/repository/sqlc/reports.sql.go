@@ -274,3 +274,202 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Lis
 	}
 	return items, nil
 }
+
+const searchReportsNearest = `-- name: SearchReportsNearest :many
+SELECT found.id, found.title, found.category_slug, found.category_label, found.status, found.reference, found.created_at, found.cover_key, found.distance, round(found.distance)::int AS distance_meters
+FROM (
+  SELECT
+    r.id,
+    r.title,
+    r.category_slug,
+    c.label AS category_label,
+    r.status,
+    r.reference,
+    r.created_at,
+    p.storage_key AS cover_key,
+    ST_Distance(
+      r.location,
+      ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
+    )::float8 AS distance
+  FROM reports r
+  JOIN categories c ON c.slug = r.category_slug
+  JOIN report_photos p ON p.report_id = r.id AND p.position = 1
+  WHERE NOT EXISTS (
+    SELECT 1 FROM unnest($3::text[]) AS w
+    WHERE extensions.unaccent(r.title || ' ' || coalesce(r.details, ''))
+          NOT ILIKE '%' || extensions.unaccent(w) || '%'
+  )
+) AS found
+WHERE $4::float8 IS NULL
+   OR found.distance > $4::float8
+   OR (
+     found.distance = $4::float8
+     AND (found.created_at, found.id) < ($5::timestamptz, $6::uuid)
+   )
+ORDER BY found.distance ASC, found.created_at DESC, found.id DESC
+LIMIT $7
+`
+
+type SearchReportsNearestParams struct {
+	Lng            float64            `json:"lng"`
+	Lat            float64            `json:"lat"`
+	Words          []string           `json:"words"`
+	AfterDistance  pgtype.Float8      `json:"after_distance"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	RowLimit       int32              `json:"row_limit"`
+}
+
+type SearchReportsNearestRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Title          string             `json:"title"`
+	CategorySlug   string             `json:"category_slug"`
+	CategoryLabel  string             `json:"category_label"`
+	Status         ReportStatus       `json:"status"`
+	Reference      pgtype.Text        `json:"reference"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CoverKey       string             `json:"cover_key"`
+	Distance       float64            `json:"distance"`
+	DistanceMeters int32              `json:"distance_meters"`
+}
+
+// One page of the search, nearest first to (@lat, @lng), ties going to the
+// newest. The keyset is (distance, created_at, id): a report comes after the
+// cursor when it is farther, or at the same exact distance and older. The
+// exact distance is returned for the cursor, and distance_meters is the same
+// distance rounded to whole meters.
+// Never selects author_id nor author_name.
+func (q *Queries) SearchReportsNearest(ctx context.Context, arg SearchReportsNearestParams) ([]SearchReportsNearestRow, error) {
+	rows, err := q.db.Query(ctx, searchReportsNearest,
+		arg.Lng,
+		arg.Lat,
+		arg.Words,
+		arg.AfterDistance,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchReportsNearestRow
+	for rows.Next() {
+		var i SearchReportsNearestRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CategorySlug,
+			&i.CategoryLabel,
+			&i.Status,
+			&i.Reference,
+			&i.CreatedAt,
+			&i.CoverKey,
+			&i.Distance,
+			&i.DistanceMeters,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchReportsRecent = `-- name: SearchReportsRecent :many
+SELECT
+  r.id,
+  r.title,
+  r.category_slug,
+  c.label AS category_label,
+  r.status,
+  r.reference,
+  r.created_at,
+  p.storage_key AS cover_key,
+  CASE
+    WHEN $1::float8 IS NULL THEN -1
+    ELSE round(ST_Distance(
+      r.location,
+      ST_SetSRID(ST_MakePoint($2::float8, $1::float8), 4326)::geography
+    ))::int
+  END AS distance_meters
+FROM reports r
+JOIN categories c ON c.slug = r.category_slug
+JOIN report_photos p ON p.report_id = r.id AND p.position = 1
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest($3::text[]) AS w
+    WHERE extensions.unaccent(r.title || ' ' || coalesce(r.details, ''))
+          NOT ILIKE '%' || extensions.unaccent(w) || '%'
+  )
+  AND (
+    $4::timestamptz IS NULL
+    OR (r.created_at, r.id) < ($4::timestamptz, $5::uuid)
+  )
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $6
+`
+
+type SearchReportsRecentParams struct {
+	Lat            pgtype.Float8      `json:"lat"`
+	Lng            pgtype.Float8      `json:"lng"`
+	Words          []string           `json:"words"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	RowLimit       int32              `json:"row_limit"`
+}
+
+type SearchReportsRecentRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Title          string             `json:"title"`
+	CategorySlug   string             `json:"category_slug"`
+	CategoryLabel  string             `json:"category_label"`
+	Status         ReportStatus       `json:"status"`
+	Reference      pgtype.Text        `json:"reference"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CoverKey       string             `json:"cover_key"`
+	DistanceMeters int32              `json:"distance_meters"`
+}
+
+// One page of the search, newest first, continuing after the (created_at, id)
+// key when one is given. A report matches when every word in @words (already
+// split and escaped for ILIKE; an empty array matches everything) appears in
+// its title or details, ignoring case and accents. The distance is as in
+// ListReports: -1 means no location. Never selects author_id nor author_name.
+func (q *Queries) SearchReportsRecent(ctx context.Context, arg SearchReportsRecentParams) ([]SearchReportsRecentRow, error) {
+	rows, err := q.db.Query(ctx, searchReportsRecent,
+		arg.Lat,
+		arg.Lng,
+		arg.Words,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchReportsRecentRow
+	for rows.Next() {
+		var i SearchReportsRecentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CategorySlug,
+			&i.CategoryLabel,
+			&i.Status,
+			&i.Reference,
+			&i.CreatedAt,
+			&i.CoverKey,
+			&i.DistanceMeters,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

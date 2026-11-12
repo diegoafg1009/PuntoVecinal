@@ -27,6 +27,10 @@ type fakeRepo struct {
 	listRows   []ReportSummary
 	listErr    error
 	listParams ListParams
+
+	searchHits   []SearchHit
+	searchErr    error
+	searchParams SearchParams
 }
 
 func (f *fakeRepo) CategoryExists(_ context.Context, slug string) (bool, error) {
@@ -67,6 +71,18 @@ func (f *fakeRepo) List(_ context.Context, p ListParams) ([]ReportSummary, error
 		rows = rows[:p.Limit]
 	}
 	return rows, nil
+}
+
+func (f *fakeRepo) Search(_ context.Context, p SearchParams) ([]SearchHit, error) {
+	f.searchParams = p
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
+	hits := f.searchHits
+	if len(hits) > p.Limit {
+		hits = hits[:p.Limit]
+	}
+	return hits, nil
 }
 
 type fakeStore struct {
@@ -643,5 +659,263 @@ func TestListFailures(t *testing.T) {
 	repo.listErr = errors.New("db down")
 	if _, err := svc.List(context.Background(), ListReportsInput{}); err == nil {
 		t.Error("a repository failure must return an error")
+	}
+}
+
+func hits(n int) []SearchHit {
+	rows := summaries(n)
+	out := make([]SearchHit, n)
+	for i, r := range rows {
+		out[i] = SearchHit{ReportSummary: r, ExactDistance: float64(10 * (i + 1))}
+	}
+	return out
+}
+
+func TestSearchSplitsAndEscapesWords(t *testing.T) {
+	tests := map[string]struct {
+		q    string
+		want []string
+	}{
+		"one word":         {"poste", []string{"poste"}},
+		"extra spaces":     {"  fuga   agua \t", []string{"fuga", "agua"}},
+		"percent":          {"100%", []string{`100\%`}},
+		"underscore":       {"a_b", []string{`a\_b`}},
+		"backslash":        {`a\b`, []string{`a\\b`}},
+		"accents are kept": {"agüa", []string{"agüa"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			svc, repo, _ := setup()
+			if _, err := svc.Search(context.Background(), SearchReportsInput{Query: tc.q}); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(repo.searchParams.Words, tc.want) {
+				t.Errorf("words = %q, want %q", repo.searchParams.Words, tc.want)
+			}
+		})
+	}
+}
+
+func TestSearchRejectsInvalidInput(t *testing.T) {
+	lat, lng := -11.93, -77.05
+	badLat := 91.0
+	tests := map[string]SearchReportsInput{
+		"no query, recent":      {},
+		"blank query, recent":   {Query: "   "},
+		"distance no location":  {Query: "a", Sort: "distance"},
+		"distance only lat":     {Sort: "distance", Latitude: &lat},
+		"query too long":        {Query: strings.Repeat("a", 101)},
+		"unknown sort":          {Query: "a", Sort: "oldest"},
+		"limit below range":     {Query: "a", Limit: -1},
+		"limit above range":     {Query: "a", Limit: 51},
+		"only longitude":        {Query: "a", Longitude: &lng},
+		"latitude out of range": {Query: "a", Latitude: &badLat, Longitude: &lng},
+	}
+	for name, in := range tests {
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := setup()
+			if _, err := svc.Search(context.Background(), in); !errors.Is(err, ErrInvalidReport) {
+				t.Errorf("err = %v, want ErrInvalidReport", err)
+			}
+		})
+	}
+}
+
+func TestSearchAcceptsBoundaries(t *testing.T) {
+	lat, lng := -11.93, -77.05
+	for name, in := range map[string]SearchReportsInput{
+		"100 characters":        {Query: strings.Repeat("ñ", 100)},
+		"nearby without words":  {Sort: "distance", Latitude: &lat, Longitude: &lng},
+		"nearby blank words":    {Query: "  ", Sort: "distance", Latitude: &lat, Longitude: &lng},
+		"recent with location":  {Query: "a", Latitude: &lat, Longitude: &lng},
+		"limit 1":               {Query: "a", Limit: 1},
+		"limit 50":              {Query: "a", Limit: 50},
+		"explicit recent order": {Query: "a", Sort: "recent"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := setup()
+			if _, err := svc.Search(context.Background(), in); err != nil {
+				t.Errorf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestSearchOrderAndLocationReachTheRepository(t *testing.T) {
+	svc, repo, _ := setup()
+	lat, lng := -11.93, -77.05
+	if _, err := svc.Search(context.Background(), SearchReportsInput{Query: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	p := repo.searchParams
+	if p.Order != OrderRecent || p.Latitude != nil || p.Limit != defaultPageSize+1 || p.HasAfter {
+		t.Errorf("params = %+v", p)
+	}
+	if _, err := svc.Search(context.Background(), SearchReportsInput{Sort: "distance", Latitude: &lat, Longitude: &lng}); err != nil {
+		t.Fatal(err)
+	}
+	p = repo.searchParams
+	if p.Order != OrderDistance || *p.Latitude != lat || *p.Longitude != lng || len(p.Words) != 0 {
+		t.Errorf("params = %+v", p)
+	}
+}
+
+func TestSearchNextCursorOnlyWhenThereAreMoreRows(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.searchHits = hits(3)
+
+	page, err := svc.Search(context.Background(), SearchReportsInput{Query: "a", Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 3 || page.NextCursor != "" {
+		t.Errorf("items = %d, cursor = %q, want 3 and none", len(page.Items), page.NextCursor)
+	}
+
+	page, err = svc.Search(context.Background(), SearchReportsInput{Query: "a", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 2 || page.NextCursor == "" {
+		t.Errorf("items = %d, cursor = %q, want 2 and a cursor", len(page.Items), page.NextCursor)
+	}
+}
+
+func TestSearchEmptyResult(t *testing.T) {
+	svc, _, _ := setup()
+	page, err := svc.Search(context.Background(), SearchReportsInput{Query: "xyz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Items == nil || len(page.Items) != 0 || page.NextCursor != "" {
+		t.Errorf("page = %+v", page)
+	}
+}
+
+func TestSearchCursorRoundTripRecent(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.searchHits = hits(3)
+	first, err := svc.Search(context.Background(), SearchReportsInput{Query: "a", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Search(context.Background(), SearchReportsInput{Query: "a", Limit: 2, Cursor: first.NextCursor}); err != nil {
+		t.Fatal(err)
+	}
+	p, second := repo.searchParams, repo.searchHits[1]
+	if !p.HasAfter || !p.After.Equal(second.CreatedAt) || p.AfterID != second.ID {
+		t.Errorf("params = %+v, want to continue after %v/%v", p, second.CreatedAt, second.ID)
+	}
+}
+
+func TestSearchCursorRoundTripDistanceKeepsTheExactValue(t *testing.T) {
+	svc, repo, _ := setup()
+	lat, lng := -11.93, -77.05
+	repo.searchHits = hits(3)
+	exact := 123.45678901234567
+	repo.searchHits[1].ExactDistance = exact
+	in := SearchReportsInput{Sort: "distance", Latitude: &lat, Longitude: &lng, Limit: 2}
+	first, err := svc.Search(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Cursor = first.NextCursor
+	if _, err := svc.Search(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	p, second := repo.searchParams, repo.searchHits[1]
+	if !p.HasAfter || p.AfterDistance != exact || p.AfterID != second.ID || !p.After.Equal(second.CreatedAt) {
+		t.Errorf("params = %+v, want the key of %v at %v m", p, second.ID, exact)
+	}
+}
+
+func TestSearchDistanceTieAcrossPageBoundaryIsNotSkipped(t *testing.T) {
+	// Two reports at the same exact distance on both sides of the boundary: the
+	// cursor carries the exact distance and the (created_at, id) of the last
+	// item, so the repository can tell them apart.
+	svc, repo, _ := setup()
+	lat, lng := -11.93, -77.05
+	repo.searchHits = hits(3)
+	for i := range repo.searchHits {
+		repo.searchHits[i].ExactDistance = 50
+	}
+	in := SearchReportsInput{Sort: "distance", Latitude: &lat, Longitude: &lng, Limit: 1}
+	first, err := svc.Search(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Cursor = first.NextCursor
+	if _, err := svc.Search(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	p, last := repo.searchParams, repo.searchHits[0]
+	if p.AfterDistance != 50 || p.AfterID != last.ID || !p.After.Equal(last.CreatedAt) {
+		t.Errorf("params = %+v, want the full tie-breaking key of %v", p, last.ID)
+	}
+}
+
+func TestSearchRejectsCursorsOfAnotherOrderOrOfTheFeed(t *testing.T) {
+	svc, repo, _ := setup()
+	lat, lng := -11.93, -77.05
+	repo.searchHits = hits(3)
+	recent, err := svc.Search(context.Background(), SearchReportsInput{Query: "a", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	distance, err := svc.Search(context.Background(), SearchReportsInput{Sort: "distance", Latitude: &lat, Longitude: &lng, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.listRows = summaries(3)
+	feed, err := svc.List(context.Background(), ListReportsInput{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]SearchReportsInput{
+		"recent cursor with distance": {Sort: "distance", Latitude: &lat, Longitude: &lng, Cursor: recent.NextCursor},
+		"distance cursor with recent": {Query: "a", Cursor: distance.NextCursor},
+		"feed cursor":                 {Query: "a", Cursor: feed.NextCursor},
+		"not base64":                  {Query: "a", Cursor: "***"},
+		"not json":                    {Query: "a", Cursor: "aGVsbG8"},
+	}
+	for name, in := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := svc.Search(context.Background(), in); !errors.Is(err, ErrInvalidCursor) {
+				t.Errorf("err = %v, want ErrInvalidCursor", err)
+			}
+		})
+	}
+}
+
+func TestSearchCarriesDistanceAndSignsCovers(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.searchHits = hits(1)
+	d := 80
+	repo.searchHits[0].Distance = &d
+	page, err := svc.Search(context.Background(), SearchReportsInput{Query: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := page.Items[0]
+	if item.DistanceMeters == nil || *item.DistanceMeters != 80 {
+		t.Errorf("distance = %v, want 80", item.DistanceMeters)
+	}
+	if want := "https://storage.test/reports/0/1.jpg?expires=3600"; item.CoverPhoto.URL != want {
+		t.Errorf("cover = %q, want %q", item.CoverPhoto.URL, want)
+	}
+}
+
+func TestSearchFailures(t *testing.T) {
+	svc, repo, store := setup()
+	repo.searchErr = errors.New("db down")
+	if _, err := svc.Search(context.Background(), SearchReportsInput{Query: "a"}); err == nil || errors.Is(err, ErrInvalidReport) {
+		t.Errorf("a repository failure must be a plain error, got %v", err)
+	}
+	repo.searchErr = nil
+	repo.searchHits = hits(1)
+	store.urlErr = errors.New("signer down")
+	if _, err := svc.Search(context.Background(), SearchReportsInput{Query: "a"}); err == nil {
+		t.Error("a signing failure must return an error")
 	}
 }

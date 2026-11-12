@@ -43,14 +43,6 @@ function next() {
     class="flex flex-col gap-3.5"
     @submit="next"
   >
-    <UAlert
-      color="error"
-      variant="subtle"
-      icon="i-lucide-triangle-alert"
-      title="¿Es una emergencia o un tema de seguridad?"
-      description="Llama a Serenazgo o al 105. Esta app no atiende urgencias."
-    />
-
     <UFormField name="category" label="¿De qué se trata?" :ui="fieldUi">
       <div v-if="isPending" class="flex flex-wrap gap-1.5" aria-busy="true">
         <USkeleton v-for="width in ['w-20', 'w-24', 'w-32', 'w-28', 'w-16']" :key="width" class="h-8 rounded-md" :class="width" />

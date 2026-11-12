@@ -90,3 +90,38 @@ type ListParams struct {
 	Latitude  *float64 // with Longitude: distances are computed from this point
 	Longitude *float64
 }
+
+// SearchOrder is how the results of a search are sorted.
+type SearchOrder string
+
+const (
+	// OrderRecent sorts from newest to oldest.
+	OrderRecent SearchOrder = "recent"
+	// OrderDistance sorts from the nearest to the farthest, newest first on ties.
+	OrderDistance SearchOrder = "distance"
+)
+
+// SearchParams selects one page of a search. Words are already split and
+// escaped for ILIKE; an empty list matches every report. OrderDistance needs
+// Latitude and Longitude. The page continues after the key when HasAfter is
+// set: (After, AfterID) for OrderRecent, and (AfterDistance, After, AfterID)
+// for OrderDistance. It holds at most Limit reports.
+type SearchParams struct {
+	Order         SearchOrder
+	Words         []string
+	HasAfter      bool
+	After         time.Time
+	AfterID       uuid.UUID
+	AfterDistance float64 // exact meters; only for OrderDistance
+	Limit         int
+	Latitude      *float64
+	Longitude     *float64
+}
+
+// SearchHit is a search result: the card data plus the exact distance in
+// meters, which the cursor of OrderDistance needs. ExactDistance is zero
+// without a location.
+type SearchHit struct {
+	ReportSummary
+	ExactDistance float64
+}
