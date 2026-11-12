@@ -1,8 +1,11 @@
+import type { CreateReportData } from '~/api/types.gen'
+
 const STORAGE_KEY = 'pv:report-draft'
 
 export const TITLE_MAX_LENGTH = 100
 export const DETAILS_MAX_LENGTH = 1000
 export const REFERENCE_MAX_LENGTH = 150
+export const AUTHOR_NAME_MAX_LENGTH = 40
 export const PHOTO_MAX_COUNT = 3
 export const STEP_COUNT = 3
 
@@ -42,6 +45,7 @@ interface StoredDraft {
   step: number
   location: DraftLocation | null
   reference: string
+  authorName: string
   photoIds: string[]
 }
 
@@ -60,7 +64,7 @@ function readStored(): Partial<StoredDraft> {
     if (!raw) return {}
     const data: unknown = JSON.parse(raw)
     if (typeof data !== 'object' || data === null) return {}
-    const { category, title, details, step, location, reference, photoIds } = data as Record<string, unknown>
+    const { category, title, details, step, location, reference, authorName, photoIds } = data as Record<string, unknown>
     const place = typeof location === 'object' && location !== null ? location as Record<string, unknown> : null
     return {
       ...(typeof category === 'string' && { category }),
@@ -69,6 +73,7 @@ function readStored(): Partial<StoredDraft> {
       ...(Number.isInteger(step) && (step as number) >= 1 && (step as number) <= STEP_COUNT && { step: step as number }),
       ...(place && isCoordinate(place.lat, 90) && isCoordinate(place.lng, 180) && { location: { lat: place.lat, lng: place.lng } }),
       ...(typeof reference === 'string' && { reference: reference.slice(0, REFERENCE_MAX_LENGTH) }),
+      ...(typeof authorName === 'string' && { authorName: authorName.slice(0, AUTHOR_NAME_MAX_LENGTH) }),
       ...(Array.isArray(photoIds) && { photoIds: photoIds.filter((id): id is string => typeof id === 'string').slice(0, PHOTO_MAX_COUNT) })
     }
   } catch {
@@ -93,6 +98,8 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
   const step = ref(stored.step ?? 1)
   const location = ref<DraftLocation | null>(stored.location ?? null)
   const reference = ref(stored.reference ?? '')
+  /** Public name chosen on step 3; empty means the report appears as «Vecino anónimo». */
+  const authorName = ref(stored.authorName ?? '')
   const photos = ref<DraftPhoto[]>([])
   /** False until the stored photos have been read back from IndexedDB. */
   const ready = ref(false)
@@ -100,7 +107,7 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
   const storedPhotoIds = stored.photoIds ?? []
 
   // Until the photos are back, keep the stored ids so an early write does not forget them.
-  watch([category, title, details, step, location, reference, photos, ready], () => {
+  watch([category, title, details, step, location, reference, authorName, photos, ready], () => {
     writeStored({
       category: category.value,
       title: title.value,
@@ -108,6 +115,7 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
       step: step.value,
       location: location.value,
       reference: reference.value,
+      authorName: authorName.value,
       photoIds: ready.value ? photos.value.map(photo => photo.id) : storedPhotoIds
     })
   }, { deep: true })
@@ -174,6 +182,25 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
     return errors
   }
 
+  /**
+   * Builds the `createReport` request body from the draft, or null while a step
+   * is incomplete. Optional text left empty is left out of the request.
+   */
+  function publishInput(author: { showName: boolean }): CreateReportData['body'] | null {
+    if (!category.value || !title.value.trim() || !location.value || photos.value.length === 0) return null
+    const name = author.showName ? authorName.value.trim().slice(0, AUTHOR_NAME_MAX_LENGTH) : ''
+    return {
+      category: category.value,
+      title: title.value.trim(),
+      latitude: location.value.lat,
+      longitude: location.value.lng,
+      photos: photos.value.map(photo => photo.blob),
+      ...(details.value.trim() && { details: details.value.trim() }),
+      ...(reference.value.trim() && { reference: reference.value.trim() }),
+      ...(name && { authorName: name })
+    }
+  }
+
   /** Clears a category the API no longer offers, keeping the rest of the draft. */
   function pruneCategory(validSlugs: string[]) {
     if (category.value !== null && !validSlugs.includes(category.value)) category.value = null
@@ -197,13 +224,14 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
     step.value = 1
     location.value = null
     reference.value = ''
+    authorName.value = ''
     photos.value.forEach(photo => URL.revokeObjectURL(photo.url))
     photos.value = []
     clearStoredPhotos()
   }
 
   return {
-    category, title, details, step, location, reference, photos, ready,
-    hasData, validateStep1, validateStep2, pruneCategory, addPhotos, removePhoto, setLocation, reset
+    category, title, details, step, location, reference, authorName, photos, ready,
+    hasData, validateStep1, validateStep2, publishInput, pruneCategory, addPhotos, removePhoto, setLocation, reset
   }
 })

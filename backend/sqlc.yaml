@@ -13,3 +13,13 @@ sql:
         sql_package: pgx/v5
         emit_json_tags: true
         emit_interface: true
+  - engine: postgresql
+    schema: ../supabase/migrations
+    queries: internal/reports/repository/queries
+    gen:
+      go:
+        package: sqlc
+        out: internal/reports/repository/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: true
+        emit_interface: true

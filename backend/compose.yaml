@@ -1,0 +1,44 @@
+# Local object storage for development: RustFS, an S3-compatible server.
+# Start it with `make storage-start`; the console is at
+# http://127.0.0.1:9001/rustfs/console/ (user and password: rustfsadmin).
+# Production uses any S3-compatible server, chosen by the S3_* settings in .env.
+name: punto-vecinal
+
+services:
+  rustfs:
+    image: rustfs/rustfs:1.0.4
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9000"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # One-shot: creates the private bucket the API uses, then exits.
+  create-bucket:
+    image: amazon/aws-cli:2.39.5
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket punto-vecinal 2>/dev/null ||
+        aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket punto-vecinal
+
+volumes:
+  rustfs-data:

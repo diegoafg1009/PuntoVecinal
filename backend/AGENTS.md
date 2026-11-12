@@ -12,7 +12,7 @@ When you run `/opsx:apply` (or the `openspec-apply-change` skill) from `backend/
 - **Database:** Supabase Postgres with PostGIS (locations and distances) and pgvector (text similarity).
 - **Authentication:** Supabase Auth. The API verifies the Supabase JWT on every request; RLS in the database is a second barrier, not the only one.
 - **Neighbor without an account:** uses an anonymous Supabase session. When they create an account they keep the same user id, so their reports stay theirs.
-- **Files:** DigitalOcean Spaces (S3-compatible API), served through signed URLs.
+- **Files:** any S3-compatible object storage, chosen only by the `S3_*` settings: RustFS locally (`make storage-start`), any S3 provider in production. The bucket is private; photos are served through signed links that expire after one hour.
 - **Embeddings:** Voyage AI. Only the report description is sent, never personal data.
 
 ## Code layout
@@ -36,10 +36,12 @@ backend/
       auth/                 token verification (Verifier, Claims) and the contract-driven auth middleware
       httpserver/           router, CORS, request logging; mounts every module
       httperror/            shared 500 handler for errors returned by handlers
+      imaging/              photo cleaning: decode JPEG/PNG and re-encode as JPEG, which drops EXIF/GPS
+      storage/              S3-compatible client (`S3`: `Put`, `Delete`, signed `URL`), AWS SDK for Go v2
       config/, database/, logging/
 ```
 
-Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database also take their store), which `internal/platform/httpserver` calls to mount it.
+Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`), `reports` (`POST /reports`, `GET /reports/{id}`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database or file storage also take their store), which `internal/platform/httpserver` calls to mount it.
 
 ## Contract
 
@@ -58,7 +60,7 @@ The OpenAPI contract lives in `openapi/` at the repository root (the frontend ge
 
 ### How authentication follows the contract
 
-`internal/platform/auth` provides a middleware (built with `OapiRequestValidatorWithOptions`) that applies the contract's `security`: operations with `security: []` pass without a token, every other operation needs a valid Supabase bearer token, and the verified `Claims` (user id and anonymous flag) are put in the request context (`auth.ClaimsFrom`). A module's `Register` builds this middleware from its own embedded contract, so a new operation is protected by default. Handlers never check tokens themselves.
+`internal/platform/auth` provides a middleware (built with `OapiRequestValidatorWithOptions`) that applies the contract's `security`: operations with `security: []` pass without a token, every other operation needs a valid Supabase bearer token, and the verified `Claims` (user id and anonymous flag) are put in the request context (`auth.ClaimsFrom`). A module's `Register` builds this middleware from its own embedded contract, so a new operation is protected by default. Handlers never check tokens themselves. The middleware does not validate request bodies and hides the body from the validator (which would read it whole into memory), so a handler that takes a body, such as the multipart upload of `POST /reports`, reads it with its own size limits and the service validates every field.
 
 ## Code generation
 
@@ -135,6 +137,7 @@ Setup:
 
 1. `cp .env.example .env` and fill in the values. The API reads real environment variables first and `.env` as a fallback (viper, see `internal/platform/config`).
 2. `make supabase-start` brings up the local Supabase stack (needs Docker). `make supabase-status` prints its URLs.
+3. `make storage-start` brings up RustFS, the local S3-compatible storage (`compose.yaml`, needs Docker), and creates the bucket `punto-vecinal`. `.env.example` already points the `S3_*` settings at it; the API does not start without `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESSKEY` and `S3_SECRETKEY`.
 
 Daily use:
 
@@ -163,5 +166,14 @@ Database:
 | `make db-reset` | Recreate the local DB from all migrations. |
 | `make db-lint` | Lint the local DB schema. |
 | `make supabase-stop` | Stop the local stack. |
+
+Object storage:
+
+| Command | What it does |
+| --- | --- |
+| `make storage-start` | Start RustFS and create the bucket (console at `http://127.0.0.1:9001/rustfs/console/`, user and password `rustfsadmin`). |
+| `make storage-stop` | Stop RustFS; the stored files are kept in the `rustfs-data` volume. |
+
+`S3_PUBLICENDPOINT` is the host put in signed links, for when browsers reach the storage by another address than the API (it defaults to `S3_ENDPOINT`). `S3_FORCEPATHSTYLE=true` is needed for RustFS; most providers use `false`. Production examples are commented in `.env.example`.
 
 Check the API is up with `curl -i localhost:8080/healthz` (200 when it can reach the database).

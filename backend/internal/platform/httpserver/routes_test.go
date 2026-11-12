@@ -40,6 +40,7 @@ func TestRouterAppliesEachContractsSecurity(t *testing.T) {
 		{"/healthz", http.StatusOK},      // security: [] in the contract
 		{"/me", http.StatusUnauthorized}, // protected by default
 		{"/categories", http.StatusUnauthorized},
+		{"/reports/3f2a1c9e-8b7d-4e6f-a5c4-1b2d3e4f5a6b", http.StatusUnauthorized},
 		{"/nope", http.StatusNotFound}, // not in any contract
 	}
 	for _, tt := range tests {

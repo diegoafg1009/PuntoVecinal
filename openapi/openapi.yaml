@@ -12,6 +12,8 @@ tags:
     description: Identity of the caller.
   - name: categories
     description: Fixed report categories.
+  - name: reports
+    description: Publishing neighbor reports.
 paths:
   /healthz:
     get:
@@ -34,6 +36,10 @@ paths:
     $ref: ./modules/auth.yaml#/paths/~1me
   /categories:
     $ref: ./modules/categories.yaml#/paths/~1categories
+  /reports:
+    $ref: ./modules/reports.yaml#/paths/~1reports
+  /reports/{id}:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}
 components:
   securitySchemes:
     bearerAuth:

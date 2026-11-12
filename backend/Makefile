@@ -33,6 +33,9 @@ help:
 	@echo "  db-reset         Recreate the local DB from migrations"
 	@echo "  migration-new    Create a migration: make migration-new name=add_reports"
 	@echo "  db-lint          Lint the local DB schema"
+	@echo "Object storage (local):"
+	@echo "  storage-start    Start RustFS (S3-compatible) and create the bucket (needs Docker)"
+	@echo "  storage-stop     Stop RustFS (the stored files are kept)"
 
 # --- Go ---
 
@@ -115,6 +118,16 @@ migration-new:
 db-lint:
 	@supabase db lint --workdir $(SUPABASE_DIR)
 
+# --- Object storage (local RustFS via docker compose, see compose.yaml) ---
+
+storage-start:
+	@docker compose up -d --wait rustfs
+	@docker compose run --rm create-bucket
+
+storage-stop:
+	@docker compose stop rustfs
+
 .PHONY: help build run test fmt vet tidy clean watch \
 	bundle generate generate-api generate-db \
-	supabase-start supabase-stop supabase-status db-reset migration-new db-lint
+	supabase-start supabase-stop supabase-status db-reset migration-new db-lint \
+	storage-start storage-stop

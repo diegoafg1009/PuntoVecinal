@@ -9,7 +9,7 @@ Proyecto del curso Taller de Aplicaciones Sociales (UNMSM, 2026-II), desarrollad
 - **Frontend:** Nuxt con Nuxt UI (web responsiva)
 - **API:** Go (capa HTTP generada con oapi-codegen y acceso a datos con sqlc)
 - **Base de datos y autenticación:** Supabase (Postgres + PostGIS, Auth, RLS)
-- **Archivos:** DigitalOcean Spaces (compatible con S3)
+- **Archivos:** almacenamiento compatible con S3 (RustFS en local, cualquier proveedor S3 en producción), con links firmados
 - **Embeddings:** Voyage AI
 
 ## Metodología
