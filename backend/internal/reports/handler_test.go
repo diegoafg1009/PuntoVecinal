@@ -32,10 +32,16 @@ func (fakeVerifier) VerifyRequest(r *http.Request) (platformauth.Claims, error) 
 
 func newRouter(t *testing.T) (http.Handler, *fakeRepo, *fakeStore) {
 	t.Helper()
+	return newRouterWith(t, &fakeEmbedder{})
+}
+
+// newRouterWith is newRouter with the given embedder.
+func newRouterWith(t *testing.T, embedder Embedder) (http.Handler, *fakeRepo, *fakeStore) {
+	t.Helper()
 	repo := &fakeRepo{categories: map[string]bool{"limpieza": true}}
 	store := newFakeStore()
 	r := chi.NewRouter()
-	if err := Register(r, fakeVerifier{}, repo, store); err != nil {
+	if err := Register(r, fakeVerifier{}, repo, store, embedder); err != nil {
 		t.Fatal(err)
 	}
 	return r, repo, store

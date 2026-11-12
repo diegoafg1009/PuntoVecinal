@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const categoryExists = `-- name: CategoryExists :one
@@ -20,6 +21,47 @@ func (q *Queries) CategoryExists(ctx context.Context, slug string) (bool, error)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const countAffected = `-- name: CountAffected :one
+SELECT (1 + count(*))::int AS total
+FROM report_supports s
+JOIN reports r ON r.id = s.report_id
+WHERE s.report_id = $1 AND s.user_id <> r.author_id
+`
+
+// The author plus every other neighbor who supports the report.
+func (q *Queries) CountAffected(ctx context.Context, reportID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countAffected, reportID)
+	var total int32
+	err := row.Scan(&total)
+	return total, err
+}
+
+const countRecentContributions = `-- name: CountRecentContributions :one
+SELECT count(*)::int AS total, min(created_at)::timestamptz AS oldest
+FROM report_contributions
+WHERE author_id = $1
+  AND created_at > $2
+`
+
+type CountRecentContributionsParams struct {
+	AuthorID pgtype.UUID        `json:"author_id"`
+	Since    pgtype.Timestamptz `json:"since"`
+}
+
+type CountRecentContributionsRow struct {
+	Total  int32              `json:"total"`
+	Oldest pgtype.Timestamptz `json:"oldest"`
+}
+
+// Aportes the author added since @since, and when the oldest of them was
+// created (null when there are none).
+func (q *Queries) CountRecentContributions(ctx context.Context, arg CountRecentContributionsParams) (CountRecentContributionsRow, error) {
+	row := q.db.QueryRow(ctx, countRecentContributions, arg.AuthorID, arg.Since)
+	var i CountRecentContributionsRow
+	err := row.Scan(&i.Total, &i.Oldest)
+	return i, err
 }
 
 const countRecentReports = `-- name: CountRecentReports :one
@@ -48,6 +90,134 @@ func (q *Queries) CountRecentReports(ctx context.Context, arg CountRecentReports
 	return i, err
 }
 
+const deleteSupport = `-- name: DeleteSupport :exec
+DELETE FROM report_supports WHERE report_id = $1 AND user_id = $2
+`
+
+type DeleteSupportParams struct {
+	ReportID pgtype.UUID `json:"report_id"`
+	UserID   pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteSupport(ctx context.Context, arg DeleteSupportParams) error {
+	_, err := q.db.Exec(ctx, deleteSupport, arg.ReportID, arg.UserID)
+	return err
+}
+
+const findSimilarReports = `-- name: FindSimilarReports :many
+SELECT
+  r.id,
+  r.title,
+  r.category_slug,
+  c.label AS category_label,
+  r.status,
+  r.created_at,
+  p.storage_key AS cover_key,
+  round(ST_Distance(
+    r.location,
+    ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
+  ))::int AS distance_meters,
+  (1 + (SELECT count(*) FROM report_supports s WHERE s.report_id = r.id AND s.user_id <> r.author_id))::int AS affected_count
+FROM reports r
+JOIN categories c ON c.slug = r.category_slug
+JOIN report_photos p ON p.report_id = r.id AND p.position = 1
+WHERE ST_DWithin(
+    r.location,
+    ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography,
+    300
+  )
+  AND r.embedding IS NOT NULL
+  AND r.status NOT IN ('atendido', 'cerrado')
+  AND (r.embedding <=> $3::vector)::float8 <= $4::float8
+ORDER BY (r.embedding <=> $3::vector) ASC, 8 ASC, r.id ASC
+LIMIT 5
+`
+
+type FindSimilarReportsParams struct {
+	Lng         float64         `json:"lng"`
+	Lat         float64         `json:"lat"`
+	Embedding   pgvector.Vector `json:"embedding"`
+	MaxDistance float64         `json:"max_distance"`
+}
+
+type FindSimilarReportsRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Title          string             `json:"title"`
+	CategorySlug   string             `json:"category_slug"`
+	CategoryLabel  string             `json:"category_label"`
+	Status         ReportStatus       `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CoverKey       string             `json:"cover_key"`
+	DistanceMeters int32              `json:"distance_meters"`
+	AffectedCount  int32              `json:"affected_count"`
+}
+
+// Open reports within 300 m of the point whose embedding is within
+// @max_distance (cosine distance) of @embedding, best match first. Never
+// selects author_id nor author_name nor details.
+func (q *Queries) FindSimilarReports(ctx context.Context, arg FindSimilarReportsParams) ([]FindSimilarReportsRow, error) {
+	rows, err := q.db.Query(ctx, findSimilarReports,
+		arg.Lng,
+		arg.Lat,
+		arg.Embedding,
+		arg.MaxDistance,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindSimilarReportsRow
+	for rows.Next() {
+		var i FindSimilarReportsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CategorySlug,
+			&i.CategoryLabel,
+			&i.Status,
+			&i.CreatedAt,
+			&i.CoverKey,
+			&i.DistanceMeters,
+			&i.AffectedCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getContribution = `-- name: GetContribution :one
+SELECT id, text, author_name, photo_key, created_at
+FROM report_contributions
+WHERE id = $1
+`
+
+type GetContributionRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Text       string             `json:"text"`
+	AuthorName pgtype.Text        `json:"author_name"`
+	PhotoKey   pgtype.Text        `json:"photo_key"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+// Never selects author_id.
+func (q *Queries) GetContribution(ctx context.Context, id pgtype.UUID) (GetContributionRow, error) {
+	row := q.db.QueryRow(ctx, getContribution, id)
+	var i GetContributionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Text,
+		&i.AuthorName,
+		&i.PhotoKey,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getReport = `-- name: GetReport :one
 SELECT
   r.id,
@@ -60,29 +230,45 @@ SELECT
   ST_X(r.location::geometry)::float8 AS longitude,
   r.reference,
   r.author_name,
-  r.created_at
+  r.created_at,
+  (1 + (SELECT count(*) FROM report_supports s WHERE s.report_id = r.id AND s.user_id <> r.author_id))::int AS affected_count,
+  (SELECT count(*) FROM report_contributions k WHERE k.report_id = r.id)::int AS contribution_count,
+  (r.author_id = $1)::bool AS is_author,
+  EXISTS (
+    SELECT 1 FROM report_supports s WHERE s.report_id = r.id AND s.user_id = $1
+  )::bool AS supported
 FROM reports r
 JOIN categories c ON c.slug = r.category_slug
-WHERE r.id = $1
+WHERE r.id = $2
 `
 
-type GetReportRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	Title         string             `json:"title"`
-	Details       pgtype.Text        `json:"details"`
-	CategorySlug  string             `json:"category_slug"`
-	CategoryLabel string             `json:"category_label"`
-	Status        ReportStatus       `json:"status"`
-	Latitude      float64            `json:"latitude"`
-	Longitude     float64            `json:"longitude"`
-	Reference     pgtype.Text        `json:"reference"`
-	AuthorName    pgtype.Text        `json:"author_name"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+type GetReportParams struct {
+	Caller pgtype.UUID `json:"caller"`
+	ID     pgtype.UUID `json:"id"`
 }
 
-// Never selects author_id: the detail is public to any session.
-func (q *Queries) GetReport(ctx context.Context, id pgtype.UUID) (GetReportRow, error) {
-	row := q.db.QueryRow(ctx, getReport, id)
+type GetReportRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	Title             string             `json:"title"`
+	Details           pgtype.Text        `json:"details"`
+	CategorySlug      string             `json:"category_slug"`
+	CategoryLabel     string             `json:"category_label"`
+	Status            ReportStatus       `json:"status"`
+	Latitude          float64            `json:"latitude"`
+	Longitude         float64            `json:"longitude"`
+	Reference         pgtype.Text        `json:"reference"`
+	AuthorName        pgtype.Text        `json:"author_name"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	AffectedCount     int32              `json:"affected_count"`
+	ContributionCount int32              `json:"contribution_count"`
+	IsAuthor          bool               `json:"is_author"`
+	Supported         bool               `json:"supported"`
+}
+
+// Never selects author_id: the detail is public to any session. The caller's
+// relation to the report comes as two flags instead.
+func (q *Queries) GetReport(ctx context.Context, arg GetReportParams) (GetReportRow, error) {
+	row := q.db.QueryRow(ctx, getReport, arg.Caller, arg.ID)
 	var i GetReportRow
 	err := row.Scan(
 		&i.ID,
@@ -96,12 +282,62 @@ func (q *Queries) GetReport(ctx context.Context, id pgtype.UUID) (GetReportRow, 
 		&i.Reference,
 		&i.AuthorName,
 		&i.CreatedAt,
+		&i.AffectedCount,
+		&i.ContributionCount,
+		&i.IsAuthor,
+		&i.Supported,
 	)
 	return i, err
 }
 
+const getReportAuthor = `-- name: GetReportAuthor :one
+SELECT author_id FROM reports WHERE id = $1
+`
+
+// Only for decisions inside the service (404, 409, aporte support); the value
+// never reaches a response.
+func (q *Queries) GetReportAuthor(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getReportAuthor, id)
+	var author_id pgtype.UUID
+	err := row.Scan(&author_id)
+	return author_id, err
+}
+
+const insertContribution = `-- name: InsertContribution :exec
+INSERT INTO report_contributions (id, report_id, author_id, author_name, text, photo_key)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6
+)
+`
+
+type InsertContributionParams struct {
+	ID         pgtype.UUID `json:"id"`
+	ReportID   pgtype.UUID `json:"report_id"`
+	AuthorID   pgtype.UUID `json:"author_id"`
+	AuthorName pgtype.Text `json:"author_name"`
+	Text       string      `json:"text"`
+	PhotoKey   pgtype.Text `json:"photo_key"`
+}
+
+func (q *Queries) InsertContribution(ctx context.Context, arg InsertContributionParams) error {
+	_, err := q.db.Exec(ctx, insertContribution,
+		arg.ID,
+		arg.ReportID,
+		arg.AuthorID,
+		arg.AuthorName,
+		arg.Text,
+		arg.PhotoKey,
+	)
+	return err
+}
+
 const insertReport = `-- name: InsertReport :exec
-INSERT INTO reports (id, author_id, category_slug, title, details, reference, location, author_name)
+INSERT INTO reports (id, author_id, category_slug, title, details, reference, location, author_name, embedding)
 VALUES (
   $1,
   $2,
@@ -110,20 +346,22 @@ VALUES (
   $5,
   $6,
   ST_SetSRID(ST_MakePoint($7::float8, $8::float8), 4326)::geography,
-  $9
+  $9,
+  $10
 )
 `
 
 type InsertReportParams struct {
-	ID           pgtype.UUID `json:"id"`
-	AuthorID     pgtype.UUID `json:"author_id"`
-	CategorySlug string      `json:"category_slug"`
-	Title        string      `json:"title"`
-	Details      pgtype.Text `json:"details"`
-	Reference    pgtype.Text `json:"reference"`
-	Longitude    float64     `json:"longitude"`
-	Latitude     float64     `json:"latitude"`
-	AuthorName   pgtype.Text `json:"author_name"`
+	ID           pgtype.UUID      `json:"id"`
+	AuthorID     pgtype.UUID      `json:"author_id"`
+	CategorySlug string           `json:"category_slug"`
+	Title        string           `json:"title"`
+	Details      pgtype.Text      `json:"details"`
+	Reference    pgtype.Text      `json:"reference"`
+	Longitude    float64          `json:"longitude"`
+	Latitude     float64          `json:"latitude"`
+	AuthorName   pgtype.Text      `json:"author_name"`
+	Embedding    *pgvector.Vector `json:"embedding"`
 }
 
 func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) error {
@@ -137,6 +375,7 @@ func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) erro
 		arg.Longitude,
 		arg.Latitude,
 		arg.AuthorName,
+		arg.Embedding,
 	)
 	return err
 }
@@ -155,6 +394,100 @@ type InsertReportPhotoParams struct {
 func (q *Queries) InsertReportPhoto(ctx context.Context, arg InsertReportPhotoParams) error {
 	_, err := q.db.Exec(ctx, insertReportPhoto, arg.ReportID, arg.Position, arg.StorageKey)
 	return err
+}
+
+const insertSupport = `-- name: InsertSupport :exec
+INSERT INTO report_supports (report_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type InsertSupportParams struct {
+	ReportID pgtype.UUID `json:"report_id"`
+	UserID   pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) InsertSupport(ctx context.Context, arg InsertSupportParams) error {
+	_, err := q.db.Exec(ctx, insertSupport, arg.ReportID, arg.UserID)
+	return err
+}
+
+const isSupporter = `-- name: IsSupporter :one
+SELECT EXISTS (
+  SELECT 1 FROM report_supports WHERE report_id = $1 AND user_id = $2
+)
+`
+
+type IsSupporterParams struct {
+	ReportID pgtype.UUID `json:"report_id"`
+	UserID   pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) IsSupporter(ctx context.Context, arg IsSupporterParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isSupporter, arg.ReportID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listContributions = `-- name: ListContributions :many
+SELECT id, text, author_name, photo_key, created_at
+FROM report_contributions
+WHERE report_id = $1
+  AND (
+    $2::timestamptz IS NULL
+    OR (created_at, id) > ($2::timestamptz, $3::uuid)
+  )
+ORDER BY created_at ASC, id ASC
+LIMIT $4
+`
+
+type ListContributionsParams struct {
+	ReportID       pgtype.UUID        `json:"report_id"`
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	RowLimit       int32              `json:"row_limit"`
+}
+
+type ListContributionsRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Text       string             `json:"text"`
+	AuthorName pgtype.Text        `json:"author_name"`
+	PhotoKey   pgtype.Text        `json:"photo_key"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+// One page of the aportes of a report, oldest first, continuing after the
+// (created_at, id) key when one is given. Never selects author_id.
+func (q *Queries) ListContributions(ctx context.Context, arg ListContributionsParams) ([]ListContributionsRow, error) {
+	rows, err := q.db.Query(ctx, listContributions,
+		arg.ReportID,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContributionsRow
+	for rows.Next() {
+		var i ListContributionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Text,
+			&i.AuthorName,
+			&i.PhotoKey,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listReportPhotos = `-- name: ListReportPhotos :many
@@ -269,7 +602,8 @@ SELECT
       r.location,
       ST_SetSRID(ST_MakePoint($2::float8, $1::float8), 4326)::geography
     ))::int
-  END AS distance_meters
+  END AS distance_meters,
+  (1 + (SELECT count(*) FROM report_supports s WHERE s.report_id = r.id AND s.user_id <> r.author_id))::int AS affected_count
 FROM reports r
 JOIN categories c ON c.slug = r.category_slug
 JOIN report_photos p ON p.report_id = r.id AND p.position = 1
@@ -303,12 +637,14 @@ type ListReportsRow struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CoverKey       string             `json:"cover_key"`
 	DistanceMeters int32              `json:"distance_meters"`
+	AffectedCount  int32              `json:"affected_count"`
 }
 
 // One page of the feed, newest first, continuing after the (created_at, id)
 // key when one is given. The distance is in whole meters and only computed
 // when a location is given: -1 means no location (sqlc cannot type a nullable
-// expression). Never selects author_id nor author_name.
+// expression). affected_count is the author plus the supporters. Never selects
+// author_id nor author_name.
 func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]ListReportsRow, error) {
 	rows, err := q.db.Query(ctx, listReports,
 		arg.Lat,
@@ -336,6 +672,7 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Lis
 			&i.CreatedAt,
 			&i.CoverKey,
 			&i.DistanceMeters,
+			&i.AffectedCount,
 		); err != nil {
 			return nil, err
 		}
@@ -347,8 +684,43 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Lis
 	return items, nil
 }
 
+const listReportsMissingEmbedding = `-- name: ListReportsMissingEmbedding :many
+SELECT id, title, details
+FROM reports
+WHERE embedding IS NULL
+ORDER BY created_at, id
+LIMIT $1
+`
+
+type ListReportsMissingEmbeddingRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Title   string      `json:"title"`
+	Details pgtype.Text `json:"details"`
+}
+
+// Reports to embed in the backfill job, oldest first.
+func (q *Queries) ListReportsMissingEmbedding(ctx context.Context, rowLimit int32) ([]ListReportsMissingEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, listReportsMissingEmbedding, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportsMissingEmbeddingRow
+	for rows.Next() {
+		var i ListReportsMissingEmbeddingRow
+		if err := rows.Scan(&i.ID, &i.Title, &i.Details); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchReportsNearest = `-- name: SearchReportsNearest :many
-SELECT found.id, found.title, found.category_slug, found.category_label, found.status, found.reference, found.created_at, found.cover_key, found.distance, round(found.distance)::int AS distance_meters
+SELECT found.id, found.title, found.category_slug, found.category_label, found.status, found.reference, found.created_at, found.cover_key, found.distance, found.affected_count, round(found.distance)::int AS distance_meters
 FROM (
   SELECT
     r.id,
@@ -362,7 +734,8 @@ FROM (
     ST_Distance(
       r.location,
       ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
-    )::float8 AS distance
+    )::float8 AS distance,
+    (1 + (SELECT count(*) FROM report_supports s WHERE s.report_id = r.id AND s.user_id <> r.author_id))::int AS affected_count
   FROM reports r
   JOIN categories c ON c.slug = r.category_slug
   JOIN report_photos p ON p.report_id = r.id AND p.position = 1
@@ -402,6 +775,7 @@ type SearchReportsNearestRow struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CoverKey       string             `json:"cover_key"`
 	Distance       float64            `json:"distance"`
+	AffectedCount  int32              `json:"affected_count"`
 	DistanceMeters int32              `json:"distance_meters"`
 }
 
@@ -438,6 +812,7 @@ func (q *Queries) SearchReportsNearest(ctx context.Context, arg SearchReportsNea
 			&i.CreatedAt,
 			&i.CoverKey,
 			&i.Distance,
+			&i.AffectedCount,
 			&i.DistanceMeters,
 		); err != nil {
 			return nil, err
@@ -466,7 +841,8 @@ SELECT
       r.location,
       ST_SetSRID(ST_MakePoint($2::float8, $1::float8), 4326)::geography
     ))::int
-  END AS distance_meters
+  END AS distance_meters,
+  (1 + (SELECT count(*) FROM report_supports s WHERE s.report_id = r.id AND s.user_id <> r.author_id))::int AS affected_count
 FROM reports r
 JOIN categories c ON c.slug = r.category_slug
 JOIN report_photos p ON p.report_id = r.id AND p.position = 1
@@ -502,6 +878,7 @@ type SearchReportsRecentRow struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CoverKey       string             `json:"cover_key"`
 	DistanceMeters int32              `json:"distance_meters"`
+	AffectedCount  int32              `json:"affected_count"`
 }
 
 // One page of the search, newest first, continuing after the (created_at, id)
@@ -535,6 +912,7 @@ func (q *Queries) SearchReportsRecent(ctx context.Context, arg SearchReportsRece
 			&i.CreatedAt,
 			&i.CoverKey,
 			&i.DistanceMeters,
+			&i.AffectedCount,
 		); err != nil {
 			return nil, err
 		}
@@ -544,6 +922,20 @@ func (q *Queries) SearchReportsRecent(ctx context.Context, arg SearchReportsRece
 		return nil, err
 	}
 	return items, nil
+}
+
+const setReportEmbedding = `-- name: SetReportEmbedding :exec
+UPDATE reports SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL
+`
+
+type SetReportEmbeddingParams struct {
+	Embedding pgvector.Vector `json:"embedding"`
+	ID        pgtype.UUID     `json:"id"`
+}
+
+func (q *Queries) SetReportEmbedding(ctx context.Context, arg SetReportEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, setReportEmbedding, arg.Embedding, arg.ID)
+	return err
 }
 
 const unknownCategories = `-- name: UnknownCategories :many

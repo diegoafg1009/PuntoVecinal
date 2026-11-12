@@ -1,4 +1,4 @@
-import type { CreateReportData } from '~/api/types.gen'
+import type { CreateReportData, SimilarReport } from '~/api/types.gen'
 
 const STORAGE_KEY = 'pv:report-draft'
 
@@ -103,6 +103,18 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
   const photos = ref<DraftPhoto[]>([])
   /** False until the stored photos have been read back from IndexedDB. */
   const ready = ref(false)
+
+  /** Nearby reports the check found for this draft. In memory only, never stored. */
+  const similar = ref<SimilarReport[]>([])
+  const similarOpen = ref(false)
+  /** Report the neighbor chose to join from the dialog. In memory only, so a reload returns to step 2. */
+  const joinTarget = ref<SimilarReport | null>(null)
+
+  /** Text of the aporte when joining a report: the title, plus the details when there are any. */
+  const contributionText = computed(() => {
+    const body = details.value.trim()
+    return body ? `${title.value.trim()}\n\n${body}` : title.value.trim()
+  })
 
   const storedPhotoIds = stored.photoIds ?? []
 
@@ -225,6 +237,9 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
     location.value = null
     reference.value = ''
     authorName.value = ''
+    similar.value = []
+    similarOpen.value = false
+    joinTarget.value = null
     photos.value.forEach(photo => URL.revokeObjectURL(photo.url))
     photos.value = []
     clearStoredPhotos()
@@ -232,6 +247,7 @@ export const useReportDraftStore = defineStore('reportDraft', () => {
 
   return {
     category, title, details, step, location, reference, authorName, photos, ready,
+    similar, similarOpen, joinTarget, contributionText,
     hasData, validateStep1, validateStep2, publishInput, pruneCategory, addPhotos, removePhoto, setLocation, reset
   }
 })

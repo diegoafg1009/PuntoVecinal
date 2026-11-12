@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 type ReportStatus string
@@ -74,10 +75,27 @@ type Report struct {
 	AuthorName   pgtype.Text        `json:"author_name"`
 	Status       ReportStatus       `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Embedding    *pgvector.Vector   `json:"embedding"`
+}
+
+type ReportContribution struct {
+	ID         pgtype.UUID        `json:"id"`
+	ReportID   pgtype.UUID        `json:"report_id"`
+	AuthorID   pgtype.UUID        `json:"author_id"`
+	AuthorName pgtype.Text        `json:"author_name"`
+	Text       string             `json:"text"`
+	PhotoKey   pgtype.Text        `json:"photo_key"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type ReportPhoto struct {
 	ReportID   pgtype.UUID `json:"report_id"`
 	Position   int16       `json:"position"`
 	StorageKey string      `json:"storage_key"`
+}
+
+type ReportSupport struct {
+	ReportID  pgtype.UUID        `json:"report_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }

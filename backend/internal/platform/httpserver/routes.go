@@ -35,7 +35,7 @@ func (s *Server) RegisterRoutes() (http.Handler, error) {
 	if err := categories.Register(r, s.verifier, s.categories); err != nil {
 		return nil, err
 	}
-	if err := reports.Register(r, s.verifier, s.reports, s.photos); err != nil {
+	if err := reports.Register(r, s.verifier, s.reports, s.photos, s.embedder); err != nil {
 		return nil, err
 	}
 

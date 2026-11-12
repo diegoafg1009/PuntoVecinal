@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/pgvector/pgvector-go"
 
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/imaging"
 )
@@ -36,6 +37,34 @@ const (
 	maxCategories   = 5
 	maxMapPins      = 500
 
+	maxContribution       = 1200
+	contributionRateCount = 10
+	contributionRateWin   = 10 * time.Minute
+
+	// publishEmbedTimeout bounds how long publishing waits for the embedding;
+	// past it the report is stored without one and the backfill job embeds it.
+	publishEmbedTimeout = 3 * time.Second
+	// similarEmbedTimeout bounds the embedding of a draft that is being checked.
+	similarEmbedTimeout = 5 * time.Second
+	// backfillEmbedTimeout bounds one embedding of the backfill job.
+	backfillEmbedTimeout = 10 * time.Second
+	backfillInterval     = 5 * time.Minute
+	backfillBatch        = 20
+
+	// maxSimilarDistance is the largest cosine distance (0 is the same meaning,
+	// 1 is unrelated) at which a nearby report is offered as similar.
+	//
+	// Calibrated with voyage-4 on 15 invented Spanish pairs of short report
+	// texts: pairs of the same problem in other words measured 0.10 to 0.26;
+	// different problems of the same category 0.23 to 0.42; different
+	// categories 0.33 to 0.52. 0.3 keeps every same-problem pair and drops every
+	// pair of another category, but lets through some related problems of the
+	// same category (for example a water leak and a clogged drain), which is
+	// fine: the dialog only suggests, and «No es ninguno, seguir» dismisses it.
+	// The sample is small, so retune this with real reports; the scale changes
+	// with the model (voyage-3.5-lite needed about 0.2).
+	maxSimilarDistance = 0.3
+
 	// MaxPhotoBytes is the largest photo, as received, that is accepted.
 	MaxPhotoBytes = 10 << 20
 )
@@ -49,8 +78,9 @@ type Repository interface {
 	CountRecent(ctx context.Context, authorID uuid.UUID, since time.Time) (RecentReports, error)
 	// Create stores the report and its photos in one transaction.
 	Create(ctx context.Context, report Report) error
-	// Get returns the report with its photos in order, or ErrNotFound.
-	Get(ctx context.Context, id uuid.UUID) (Report, error)
+	// Get returns the report with its photos in order and its relation to
+	// caller (author or supporter), or ErrNotFound.
+	Get(ctx context.Context, id, caller uuid.UUID) (Report, error)
 	// List returns up to params.Limit reports, newest first, continuing after
 	// the key in params.
 	List(ctx context.Context, params ListParams) ([]ReportSummary, error)
@@ -62,6 +92,47 @@ type Repository interface {
 	// UnknownCategories returns the slugs that are not one of the fixed
 	// categories.
 	UnknownCategories(ctx context.Context, slugs []string) ([]string, error)
+
+	// GetAuthor returns the id of the session that published the report, or
+	// ErrNotFound. It is only for decisions inside the service.
+	GetAuthor(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// FindSimilar returns the open reports within 300 m of the point whose
+	// meaning is close to the embedding, best match first, at most 5.
+	FindSimilar(ctx context.Context, params SimilarParams) ([]SimilarReport, error)
+	// Support marks "También me afecta" for userID; marking twice changes
+	// nothing. Unsupport removes it; removing it twice changes nothing.
+	Support(ctx context.Context, reportID, userID uuid.UUID) error
+	Unsupport(ctx context.Context, reportID, userID uuid.UUID) error
+	// CountAffected returns the author plus every other neighbor who supports
+	// the report.
+	CountAffected(ctx context.Context, reportID uuid.UUID) (int, error)
+	// CountRecentContributions summarizes the aportes authorID added since the
+	// given time.
+	CountRecentContributions(ctx context.Context, authorID uuid.UUID, since time.Time) (RecentReports, error)
+	// CreateContribution stores the aporte and, when markSupport is set, the
+	// support of its author, in one transaction. It returns the aporte as stored.
+	CreateContribution(ctx context.Context, c Contribution, markSupport bool) (Contribution, error)
+	// ListContributions returns up to params.Limit aportes of a report, oldest
+	// first, continuing after the key in params.
+	ListContributions(ctx context.Context, params ContributionParams) ([]Contribution, error)
+
+	BackfillRepository
+}
+
+// BackfillRepository is what the embedding backfill job needs; Repository
+// includes it.
+type BackfillRepository interface {
+	// ListMissingEmbedding returns up to limit reports that have no embedding,
+	// oldest first.
+	ListMissingEmbedding(ctx context.Context, limit int) ([]ReportText, error)
+	// SetEmbedding stores the embedding of a report that has none.
+	SetEmbedding(ctx context.Context, id uuid.UUID, embedding pgvector.Vector) error
+}
+
+// Embedder turns a text into a vector that captures its meaning; implemented by
+// embedding.Voyage. Only comparableText may be passed to it.
+type Embedder interface {
+	Embed(ctx context.Context, text string) (pgvector.Vector, error)
 }
 
 // PhotoStore is the file storage the service needs; implemented by
@@ -75,13 +146,14 @@ type PhotoStore interface {
 }
 
 type Service struct {
-	repo   Repository
-	photos PhotoStore
-	now    func() time.Time
+	repo     Repository
+	photos   PhotoStore
+	embedder Embedder
+	now      func() time.Time
 }
 
-func NewService(repo Repository, photos PhotoStore) *Service {
-	return &Service{repo: repo, photos: photos, now: time.Now}
+func NewService(repo Repository, photos PhotoStore, embedder Embedder) *Service {
+	return &Service{repo: repo, photos: photos, embedder: embedder, now: time.Now}
 }
 
 // Create validates and publishes a report. It either stores the report with
@@ -117,6 +189,8 @@ func (s *Service) Create(ctx context.Context, in CreateReportInput) (CreatedRepo
 		}
 	}
 
+	report.Embedding = s.embedReport(ctx, report)
+
 	report.ID = uuid.New()
 	for i := range cleaned {
 		report.Photos = append(report.Photos, Photo{
@@ -137,14 +211,14 @@ func (s *Service) Create(ctx context.Context, in CreateReportInput) (CreatedRepo
 }
 
 // Get returns a report with its photos as signed links that expire after one
-// hour. An id that is not a valid UUID is reported as ErrNotFound, like an
-// unknown one.
-func (s *Service) Get(ctx context.Context, id string) (ReportDTO, error) {
+// hour, and the caller's relation to it. An id that is not a valid UUID is
+// reported as ErrNotFound, like an unknown one.
+func (s *Service) Get(ctx context.Context, id string, caller uuid.UUID) (ReportDTO, error) {
 	reportID, err := uuid.Parse(id)
 	if err != nil {
 		return ReportDTO{}, ErrNotFound
 	}
-	r, err := s.repo.Get(ctx, reportID)
+	r, err := s.repo.Get(ctx, reportID, caller)
 	if err != nil {
 		return ReportDTO{}, fmt.Errorf("get report: %w", err)
 	}
@@ -170,7 +244,24 @@ func (s *Service) Get(ctx context.Context, id string) (ReportDTO, error) {
 		AuthorName:    r.AuthorName,
 		CreatedAt:     r.CreatedAt,
 		Photos:        photos,
+
+		AffectedCount:     r.AffectedCount,
+		ContributionCount: r.ContributionCount,
+		Support:           supportState(r.IsAuthor, r.Supported),
 	}, nil
+}
+
+// supportState tells the caller's relation to a report. The author always
+// counts as affected, whatever the support rows say.
+func supportState(isAuthor, supported bool) string {
+	switch {
+	case isAuthor:
+		return SupportAuthor
+	case supported:
+		return SupportSupporter
+	default:
+		return SupportNone
+	}
 }
 
 // List returns one page of the feed, newest first. Each cover photo is a
@@ -374,6 +465,7 @@ func (s *Service) cards(ctx context.Context, rows []ReportSummary) ([]ReportSumm
 			CreatedAt:      r.CreatedAt,
 			CoverPhoto:     PhotoDTO{URL: link},
 			DistanceMeters: r.Distance,
+			AffectedCount:  r.AffectedCount,
 		})
 	}
 	return items, nil
@@ -516,11 +608,17 @@ func (s *Service) checkRate(ctx context.Context, authorID uuid.UUID) error {
 	if recent.Count < rateLimitCount {
 		return nil
 	}
-	wait := recent.Oldest.Add(rateLimitWindow).Sub(now)
+	return &TooManyReportsError{RetryAfter: retryAfter(recent.Oldest, rateLimitWindow, now)}
+}
+
+// retryAfter is how long to wait until the oldest action inside the window
+// leaves it, at least one second.
+func retryAfter(oldest time.Time, window time.Duration, now time.Time) time.Duration {
+	wait := oldest.Add(window).Sub(now)
 	if wait < time.Second {
 		wait = time.Second
 	}
-	return &TooManyReportsError{RetryAfter: wait}
+	return wait
 }
 
 func (s *Service) upload(ctx context.Context, photos []Photo, data [][]byte) error {
@@ -550,4 +648,331 @@ func (s *Service) removePhotos(ctx context.Context, photos []Photo) {
 
 func invalid(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidReport, fmt.Sprintf(format, args...))
+}
+
+// comparableText is the only text that leaves the system to be compared: the
+// title, and the details when there are any. Never the author name, the
+// reference, the location nor any user data. Callers pass trimmed values.
+func comparableText(title, details string) string {
+	if details == "" {
+		return title
+	}
+	return title + "\n" + details
+}
+
+// embedReport returns the embedding of a report about to be published, or nil
+// when it cannot be obtained within publishEmbedTimeout: publishing never
+// fails because of the comparison service, and the backfill job embeds the
+// report later.
+func (s *Service) embedReport(ctx context.Context, r Report) *pgvector.Vector {
+	ctx, cancel := context.WithTimeout(ctx, publishEmbedTimeout)
+	defer cancel()
+	vec, err := s.embedder.Embed(ctx, comparableText(r.Title, r.Details))
+	if err != nil {
+		// The error never carries the text.
+		slog.WarnContext(ctx, "embed report on publish; the backfill will retry", "error", err)
+		return nil
+	}
+	return &vec
+}
+
+// Similar returns the open reports within 300 m of the draft's location whose
+// meaning is close to its title and details, best match first, at most 5, with
+// each cover as a signed link that expires after one hour. When the comparison
+// service fails it returns ErrComparisonUnavailable.
+func (s *Service) Similar(ctx context.Context, in SimilarReportsInput) ([]SimilarReportDTO, error) {
+	title, details := strings.TrimSpace(in.Title), strings.TrimSpace(in.Details)
+	switch {
+	case title == "":
+		return nil, invalid("title is required")
+	case utf8.RuneCountInString(title) > maxTitle:
+		return nil, invalid("title must have at most %d characters", maxTitle)
+	case utf8.RuneCountInString(details) > maxDetails:
+		return nil, invalid("details must have at most %d characters", maxDetails)
+	case !inRange(in.Latitude, 90):
+		return nil, invalid("latitude must be between -90 and 90")
+	case !inRange(in.Longitude, 180):
+		return nil, invalid("longitude must be between -180 and 180")
+	}
+
+	embedCtx, cancel := context.WithTimeout(ctx, similarEmbedTimeout)
+	defer cancel()
+	vec, err := s.embedder.Embed(embedCtx, comparableText(title, details))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrComparisonUnavailable, err)
+	}
+
+	found, err := s.repo.FindSimilar(ctx, SimilarParams{
+		Embedding:   vec,
+		Latitude:    in.Latitude,
+		Longitude:   in.Longitude,
+		MaxDistance: maxSimilarDistance,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find similar reports: %w", err)
+	}
+
+	items := make([]SimilarReportDTO, 0, len(found))
+	for _, r := range found {
+		link, err := s.photos.URL(ctx, r.CoverKey, photoLinkTTL)
+		if err != nil {
+			return nil, fmt.Errorf("sign cover of report %s: %w", r.ID, err)
+		}
+		items = append(items, SimilarReportDTO{
+			ID:             r.ID,
+			Title:          r.Title,
+			CategorySlug:   r.CategorySlug,
+			CategoryLabel:  r.CategoryLabel,
+			Status:         r.Status,
+			CreatedAt:      r.CreatedAt,
+			CoverPhoto:     PhotoDTO{URL: link},
+			DistanceMeters: r.Distance,
+			AffectedCount:  r.AffectedCount,
+		})
+	}
+	return items, nil
+}
+
+// Support marks "También me afecta" for the caller. It is idempotent. The
+// author of the report cannot change their support (ErrIsAuthor), and an
+// unknown or malformed id is ErrNotFound.
+func (s *Service) Support(ctx context.Context, id string, caller uuid.UUID) (ReportSupportDTO, error) {
+	return s.changeSupport(ctx, id, caller, true)
+}
+
+// Unsupport removes the caller's support. It is idempotent, and fails as
+// Support does.
+func (s *Service) Unsupport(ctx context.Context, id string, caller uuid.UUID) (ReportSupportDTO, error) {
+	return s.changeSupport(ctx, id, caller, false)
+}
+
+// changeSupport is not a transaction: the count is read after the write, so a
+// concurrent change by another neighbor only shifts it by one.
+func (s *Service) changeSupport(ctx context.Context, id string, caller uuid.UUID, mark bool) (ReportSupportDTO, error) {
+	reportID, err := uuid.Parse(id)
+	if err != nil {
+		return ReportSupportDTO{}, ErrNotFound
+	}
+	author, err := s.repo.GetAuthor(ctx, reportID)
+	if err != nil {
+		return ReportSupportDTO{}, fmt.Errorf("get report author: %w", err)
+	}
+	if author == caller {
+		return ReportSupportDTO{}, ErrIsAuthor
+	}
+
+	state := SupportNone
+	if mark {
+		err, state = s.repo.Support(ctx, reportID, caller), SupportSupporter
+	} else {
+		err = s.repo.Unsupport(ctx, reportID, caller)
+	}
+	if err != nil {
+		return ReportSupportDTO{}, fmt.Errorf("change support: %w", err)
+	}
+
+	count, err := s.repo.CountAffected(ctx, reportID)
+	if err != nil {
+		return ReportSupportDTO{}, fmt.Errorf("count affected: %w", err)
+	}
+	return ReportSupportDTO{AffectedCount: count, Support: state}, nil
+}
+
+// Contribute adds an aporte to a report, which is also joining it: the caller's
+// support is marked in the same transaction, unless the caller is the author or
+// already supports it, which leave the count as it was. The photo, when there
+// is one, is cleaned and stored first, and removed again if the aporte cannot
+// be saved.
+func (s *Service) Contribute(ctx context.Context, in ContributionInput) (CreatedContributionDTO, error) {
+	text := strings.TrimSpace(in.Text)
+	name := strings.TrimSpace(in.AuthorName)
+	switch {
+	case text == "":
+		return CreatedContributionDTO{}, invalid("text is required")
+	case utf8.RuneCountInString(text) > maxContribution:
+		return CreatedContributionDTO{}, invalid("text must have at most %d characters", maxContribution)
+	case utf8.RuneCountInString(name) > maxAuthorName:
+		return CreatedContributionDTO{}, invalid("author name must have at most %d characters", maxAuthorName)
+	case len(in.Photo) > MaxPhotoBytes:
+		return CreatedContributionDTO{}, ErrPhotoTooLarge
+	}
+
+	reportID, err := uuid.Parse(in.ReportID)
+	if err != nil {
+		return CreatedContributionDTO{}, ErrNotFound
+	}
+	author, err := s.repo.GetAuthor(ctx, reportID)
+	if err != nil {
+		return CreatedContributionDTO{}, fmt.Errorf("get report author: %w", err)
+	}
+
+	if err := s.checkContributionRate(ctx, in.AuthorID); err != nil {
+		return CreatedContributionDTO{}, err
+	}
+
+	c := Contribution{
+		ID:         uuid.New(),
+		ReportID:   reportID,
+		AuthorID:   in.AuthorID,
+		AuthorName: name,
+		Text:       text,
+	}
+	var stored []Photo
+	if in.Photo != nil {
+		cleaned, err := imaging.Clean(in.Photo)
+		if errors.Is(err, imaging.ErrInvalidImage) {
+			return CreatedContributionDTO{}, invalid("photo is not a valid JPEG or PNG image")
+		}
+		if err != nil {
+			return CreatedContributionDTO{}, fmt.Errorf("clean photo: %w", err)
+		}
+		c.PhotoKey = fmt.Sprintf("contributions/%s.jpg", c.ID)
+		stored = []Photo{{Position: 1, StorageKey: c.PhotoKey}}
+		if err := s.upload(ctx, stored, [][]byte{cleaned}); err != nil {
+			s.removePhotos(ctx, stored)
+			return CreatedContributionDTO{}, err
+		}
+	}
+
+	isAuthor := author == in.AuthorID
+	saved, err := s.repo.CreateContribution(ctx, c, !isAuthor)
+	if err != nil {
+		s.removePhotos(ctx, stored)
+		return CreatedContributionDTO{}, fmt.Errorf("create contribution: %w", err)
+	}
+
+	count, err := s.repo.CountAffected(ctx, reportID)
+	if err != nil {
+		return CreatedContributionDTO{}, fmt.Errorf("count affected: %w", err)
+	}
+	dto, err := s.contributionDTO(ctx, saved)
+	if err != nil {
+		return CreatedContributionDTO{}, err
+	}
+	state := SupportSupporter
+	if isAuthor {
+		state = SupportAuthor
+	}
+	return CreatedContributionDTO{Contribution: dto, AffectedCount: count, Support: state}, nil
+}
+
+// Contributions returns one page of the aportes of a report, oldest first, with
+// each photo as a signed link that expires after one hour. The cursor continues
+// right after the last item; it is empty on the last page.
+func (s *Service) Contributions(ctx context.Context, in ListContributionsInput) (ContributionPageDTO, error) {
+	reportID, err := uuid.Parse(in.ReportID)
+	if err != nil {
+		return ContributionPageDTO{}, ErrNotFound
+	}
+	if _, err := s.repo.GetAuthor(ctx, reportID); err != nil {
+		return ContributionPageDTO{}, fmt.Errorf("get report author: %w", err)
+	}
+	limit, err := checkPaging(in.Limit, nil, nil)
+	if err != nil {
+		return ContributionPageDTO{}, err
+	}
+
+	// One more than the page, to know whether there is a next page.
+	params := ContributionParams{ReportID: reportID, Limit: limit + 1}
+	if in.Cursor != "" {
+		after, id, err := decodeCursor(in.Cursor)
+		if err != nil {
+			return ContributionPageDTO{}, err
+		}
+		params.HasAfter, params.After, params.AfterID = true, after, id
+	}
+	rows, err := s.repo.ListContributions(ctx, params)
+	if err != nil {
+		return ContributionPageDTO{}, fmt.Errorf("list contributions: %w", err)
+	}
+
+	page := ContributionPageDTO{}
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[limit-1]
+		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
+	page.Items = make([]ContributionDTO, 0, len(rows))
+	for _, row := range rows {
+		dto, err := s.contributionDTO(ctx, row)
+		if err != nil {
+			return ContributionPageDTO{}, err
+		}
+		page.Items = append(page.Items, dto)
+	}
+	return page, nil
+}
+
+// contributionDTO turns an aporte into its public form, signing its photo.
+func (s *Service) contributionDTO(ctx context.Context, c Contribution) (ContributionDTO, error) {
+	dto := ContributionDTO{ID: c.ID, Text: c.Text, AuthorName: c.AuthorName, CreatedAt: c.CreatedAt}
+	if c.PhotoKey != "" {
+		link, err := s.photos.URL(ctx, c.PhotoKey, photoLinkTTL)
+		if err != nil {
+			return ContributionDTO{}, fmt.Errorf("sign photo of contribution %s: %w", c.ID, err)
+		}
+		dto.PhotoURL = link
+	}
+	return dto, nil
+}
+
+// checkContributionRate rejects the call when the author already added the
+// maximum number of aportes inside the window, across all reports.
+func (s *Service) checkContributionRate(ctx context.Context, authorID uuid.UUID) error {
+	now := s.now()
+	recent, err := s.repo.CountRecentContributions(ctx, authorID, now.Add(-contributionRateWin))
+	if err != nil {
+		return fmt.Errorf("count recent contributions: %w", err)
+	}
+	if recent.Count < contributionRateCount {
+		return nil
+	}
+	return &TooManyContributionsError{RetryAfter: retryAfter(recent.Oldest, contributionRateWin, now)}
+}
+
+// RunEmbeddingBackfill embeds the reports that were published while the
+// comparison service was unavailable. It runs a round right away and then every
+// five minutes, until ctx is done. Each round embeds up to 20 reports, oldest
+// first, and stops at the first failure to embed, since the service is likely
+// still down.
+func RunEmbeddingBackfill(ctx context.Context, repo BackfillRepository, embedder Embedder, logger *slog.Logger) {
+	ticker := time.NewTicker(backfillInterval)
+	defer ticker.Stop()
+	for {
+		backfillRound(ctx, repo, embedder, logger)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// backfillRound runs one round and returns how many reports it embedded.
+func backfillRound(ctx context.Context, repo BackfillRepository, embedder Embedder, logger *slog.Logger) int {
+	pending, err := repo.ListMissingEmbedding(ctx, backfillBatch)
+	if err != nil {
+		logger.WarnContext(ctx, "list reports without embedding", "error", err)
+		return 0
+	}
+	done := 0
+	for _, r := range pending {
+		vec, err := embedWithTimeout(ctx, embedder, comparableText(r.Title, r.Details))
+		if err != nil {
+			logger.WarnContext(ctx, "embed report in backfill; stopping the round", "error", err)
+			return done
+		}
+		if err := repo.SetEmbedding(ctx, r.ID, vec); err != nil {
+			logger.WarnContext(ctx, "store embedding in backfill", "report", r.ID, "error", err)
+			return done
+		}
+		done++
+	}
+	return done
+}
+
+func embedWithTimeout(ctx context.Context, embedder Embedder, text string) (pgvector.Vector, error) {
+	ctx, cancel := context.WithTimeout(ctx, backfillEmbedTimeout)
+	defer cancel()
+	return embedder.Embed(ctx, text)
 }

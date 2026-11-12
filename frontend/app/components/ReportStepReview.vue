@@ -36,8 +36,6 @@ const state = reactive({
   get authorName() { return draft.authorName }
 })
 
-const fieldUi = { label: 'font-semibold text-highlighted' }
-
 const categoryLabel = computed(() =>
   categories.value?.find(category => category.slug === draft.category)?.label ?? draft.category)
 
@@ -157,12 +155,7 @@ function submit() {
 
     <USeparator />
 
-    <div v-if="canChooseName" class="flex flex-col gap-2">
-      <USwitch v-model="showName" label="Mostrar mi nombre o apodo" />
-      <UFormField v-if="showName" name="authorName" label="Nombre o apodo" :ui="fieldUi">
-        <UInput v-model="draft.authorName" :maxlength="AUTHOR_NAME_MAX_LENGTH" class="w-full" />
-      </UFormField>
-    </div>
+    <ReportAuthorNameField v-model:show-name="showName" v-model:name="draft.authorName" />
     <p class="text-sm text-muted">
       Tu reporte aparecerá como <strong class="text-highlighted">{{ appearsAs }}</strong>.
     </p>

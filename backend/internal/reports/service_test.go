@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pgvector/pgvector-go"
+
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/embedding"
 )
 
 type fakeRepo struct {
@@ -37,6 +40,26 @@ type fakeRepo struct {
 	pinsParams    MapParams
 	unknownErr    error
 	unknownCalled int
+
+	// Participation.
+	authors       map[uuid.UUID]uuid.UUID // report id -> author id; a missing report is ErrNotFound
+	authorErr     error
+	similar       []SimilarReport
+	similarErr    error
+	similarParams SimilarParams
+	supports      map[uuid.UUID]map[uuid.UUID]bool // report id -> user ids
+	supportErr    error
+	contribs      []Contribution
+	contribRecent RecentReports
+	contribCount  error
+	contribErr    error
+	contribMarked bool // markSupport of the last CreateContribution
+	contribParams ContributionParams
+	listContribs  error
+	missing       []ReportText
+	missingErr    error
+	embedded      map[uuid.UUID]pgvector.Vector
+	setErr        error
 }
 
 func (f *fakeRepo) ListPins(_ context.Context, p MapParams) ([]ReportPin, error) {
@@ -78,7 +101,7 @@ func (f *fakeRepo) Create(_ context.Context, r Report) error {
 	return nil
 }
 
-func (f *fakeRepo) Get(_ context.Context, id uuid.UUID) (Report, error) {
+func (f *fakeRepo) Get(_ context.Context, id, _ uuid.UUID) (Report, error) {
 	if f.getErr != nil {
 		return Report{}, f.getErr
 	}
@@ -111,6 +134,134 @@ func (f *fakeRepo) Search(_ context.Context, p SearchParams) ([]SearchHit, error
 		hits = hits[:p.Limit]
 	}
 	return hits, nil
+}
+
+func (f *fakeRepo) GetAuthor(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
+	if f.authorErr != nil {
+		return uuid.Nil, f.authorErr
+	}
+	author, ok := f.authors[id]
+	if !ok {
+		return uuid.Nil, ErrNotFound
+	}
+	return author, nil
+}
+
+func (f *fakeRepo) FindSimilar(_ context.Context, p SimilarParams) ([]SimilarReport, error) {
+	f.similarParams = p
+	return f.similar, f.similarErr
+}
+
+func (f *fakeRepo) Support(_ context.Context, reportID, userID uuid.UUID) error {
+	if f.supportErr != nil {
+		return f.supportErr
+	}
+	if f.supports == nil {
+		f.supports = map[uuid.UUID]map[uuid.UUID]bool{}
+	}
+	if f.supports[reportID] == nil {
+		f.supports[reportID] = map[uuid.UUID]bool{}
+	}
+	f.supports[reportID][userID] = true
+	return nil
+}
+
+func (f *fakeRepo) Unsupport(_ context.Context, reportID, userID uuid.UUID) error {
+	if f.supportErr != nil {
+		return f.supportErr
+	}
+	delete(f.supports[reportID], userID)
+	return nil
+}
+
+// CountAffected is the author plus the supporters, as the real query counts.
+func (f *fakeRepo) CountAffected(_ context.Context, reportID uuid.UUID) (int, error) {
+	total := 1
+	for user := range f.supports[reportID] {
+		if user != f.authors[reportID] {
+			total++
+		}
+	}
+	return total, nil
+}
+
+func (f *fakeRepo) CountRecentContributions(_ context.Context, _ uuid.UUID, since time.Time) (RecentReports, error) {
+	f.counted = since
+	return f.contribRecent, f.contribCount
+}
+
+// CreateContribution is all or nothing, like the real transaction: on error
+// neither the aporte nor the support is stored.
+func (f *fakeRepo) CreateContribution(ctx context.Context, c Contribution, markSupport bool) (Contribution, error) {
+	f.contribMarked = markSupport
+	if f.contribErr != nil {
+		return Contribution{}, f.contribErr
+	}
+	c.CreatedAt = time.Date(2026, 11, 12, 10, 0, len(f.contribs), 0, time.UTC)
+	f.contribs = append(f.contribs, c)
+	if markSupport {
+		_ = f.Support(ctx, c.ReportID, c.AuthorID)
+	}
+	c.AuthorID = uuid.Nil // read back without the author
+	return c, nil
+}
+
+// ListContributions pages the stored aportes of the report oldest first, with
+// the same keyset as the real query.
+func (f *fakeRepo) ListContributions(_ context.Context, p ContributionParams) ([]Contribution, error) {
+	f.contribParams = p
+	if f.listContribs != nil {
+		return nil, f.listContribs
+	}
+	var rows []Contribution
+	for _, c := range f.contribs {
+		after := !p.HasAfter || c.CreatedAt.After(p.After) || (c.CreatedAt.Equal(p.After) && c.ID.String() > p.AfterID.String())
+		if c.ReportID == p.ReportID && after {
+			c.AuthorID = uuid.Nil
+			rows = append(rows, c)
+		}
+	}
+	if len(rows) > p.Limit {
+		rows = rows[:p.Limit]
+	}
+	return rows, nil
+}
+
+func (f *fakeRepo) ListMissingEmbedding(_ context.Context, limit int) ([]ReportText, error) {
+	if f.missingErr != nil {
+		return nil, f.missingErr
+	}
+	rows := f.missing
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows, nil
+}
+
+func (f *fakeRepo) SetEmbedding(_ context.Context, id uuid.UUID, e pgvector.Vector) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	if f.embedded == nil {
+		f.embedded = map[uuid.UUID]pgvector.Vector{}
+	}
+	f.embedded[id] = e
+	return nil
+}
+
+// fakeEmbedder records the texts it receives. Calls from number failFrom on
+// (1-based; 0 means never) fail as the real client does when Voyage is down.
+type fakeEmbedder struct {
+	texts    []string
+	failFrom int
+}
+
+func (f *fakeEmbedder) Embed(_ context.Context, text string) (pgvector.Vector, error) {
+	f.texts = append(f.texts, text)
+	if f.failFrom > 0 && len(f.texts) >= f.failFrom {
+		return pgvector.Vector{}, embedding.ErrUnavailable
+	}
+	return pgvector.NewVector([]float32{1, 0, 0}), nil
 }
 
 type fakeStore struct {
@@ -166,8 +317,11 @@ func validInput(t *testing.T) CreateReportInput {
 func setup() (*Service, *fakeRepo, *fakeStore) {
 	repo := &fakeRepo{categories: map[string]bool{"limpieza": true}}
 	store := newFakeStore()
-	return NewService(repo, store), repo, store
+	return NewService(repo, store, &fakeEmbedder{}), repo, store
 }
+
+// embedderOf returns the fake embedder of a service built by setup.
+func embedderOf(svc *Service) *fakeEmbedder { return svc.embedder.(*fakeEmbedder) }
 
 func TestCreatePublishesCompleteReport(t *testing.T) {
 	svc, repo, store := setup()
@@ -435,7 +589,7 @@ func TestGetReturnsTheReport(t *testing.T) {
 	r := storedReport()
 	repo.stored = map[uuid.UUID]Report{r.ID: r}
 
-	got, err := svc.Get(context.Background(), r.ID.String())
+	got, err := svc.Get(context.Background(), r.ID.String(), uuid.New())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -455,7 +609,7 @@ func TestGetSignsPhotosInOrderForOneHour(t *testing.T) {
 	r := storedReport()
 	repo.stored = map[uuid.UUID]Report{r.ID: r}
 
-	got, err := svc.Get(context.Background(), r.ID.String())
+	got, err := svc.Get(context.Background(), r.ID.String(), uuid.New())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -478,7 +632,7 @@ func TestGetUnknownOrMalformedID(t *testing.T) {
 	repo.stored = map[uuid.UUID]Report{}
 
 	for _, id := range []string{uuid.NewString(), "not-a-uuid", ""} {
-		if _, err := svc.Get(context.Background(), id); !errors.Is(err, ErrNotFound) {
+		if _, err := svc.Get(context.Background(), id, uuid.New()); !errors.Is(err, ErrNotFound) {
 			t.Errorf("Get(%q) err = %v, want ErrNotFound", id, err)
 		}
 	}
@@ -490,13 +644,13 @@ func TestGetFailures(t *testing.T) {
 	repo.stored = map[uuid.UUID]Report{r.ID: r}
 
 	store.urlErr = errors.New("cannot sign")
-	if _, err := svc.Get(context.Background(), r.ID.String()); err == nil || errors.Is(err, ErrNotFound) {
+	if _, err := svc.Get(context.Background(), r.ID.String(), uuid.New()); err == nil || errors.Is(err, ErrNotFound) {
 		t.Errorf("signing failure: err = %v, want a server error", err)
 	}
 
 	store.urlErr = nil
 	repo.getErr = errors.New("db down")
-	if _, err := svc.Get(context.Background(), r.ID.String()); err == nil || errors.Is(err, ErrNotFound) {
+	if _, err := svc.Get(context.Background(), r.ID.String(), uuid.New()); err == nil || errors.Is(err, ErrNotFound) {
 		t.Errorf("database failure: err = %v, want a server error", err)
 	}
 }

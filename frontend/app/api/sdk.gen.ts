@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportMapData, GetReportMapErrors, GetReportMapResponses, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses, SearchReportsData, SearchReportsErrors, SearchReportsResponses } from './types.gen';
+import type { CreateReportContributionData, CreateReportContributionErrors, CreateReportContributionResponses, CreateReportData, CreateReportErrors, CreateReportResponses, FindSimilarReportsData, FindSimilarReportsErrors, FindSimilarReportsResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportMapData, GetReportMapErrors, GetReportMapResponses, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportContributionsData, ListReportContributionsErrors, ListReportContributionsResponses, ListReportsData, ListReportsErrors, ListReportsResponses, SearchReportsData, SearchReportsErrors, SearchReportsResponses, SupportReportData, SupportReportErrors, SupportReportResponses, UnsupportReportData, UnsupportReportErrors, UnsupportReportResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -97,6 +97,21 @@ export const searchReports = <ThrowOnError extends boolean = false>(options?: Op
 });
 
 /**
+ * Find similar reports near a place
+ *
+ * Returns the open reports (not `atendido` nor `cerrado`) within 300 m of the given location whose title and details are close in meaning to the given text, best match first, at most 5. Only the title and details are compared. The author name and the session that published a report are never returned.
+ */
+export const findSimilarReports = <ThrowOnError extends boolean = false>(options: Options<FindSimilarReportsData, ThrowOnError>): RequestResult<FindSimilarReportsResponses, FindSimilarReportsErrors, ThrowOnError> => (options.client ?? client).post<FindSimilarReportsResponses, FindSimilarReportsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/similar',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Get a report
  *
  * Returns one report with its photos, each as a signed link that expires after one hour. The session that published the report is never returned; a null `authorName` means the report appears as "Vecino anónimo".
@@ -105,4 +120,53 @@ export const getReport = <ThrowOnError extends boolean = false>(options: Options
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/reports/{id}',
     ...options
+});
+
+/**
+ * Remove "También me afecta"
+ *
+ * Removes the caller's support. Removing support that was not marked changes nothing. The author of the report cannot remove support.
+ */
+export const unsupportReport = <ThrowOnError extends boolean = false>(options: Options<UnsupportReportData, ThrowOnError>): RequestResult<UnsupportReportResponses, UnsupportReportErrors, ThrowOnError> => (options.client ?? client).delete<UnsupportReportResponses, UnsupportReportErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/{id}/support',
+    ...options
+});
+
+/**
+ * Mark "También me afecta"
+ *
+ * Marks that the problem also affects the caller. Marking twice counts once. The author of the report cannot mark support.
+ */
+export const supportReport = <ThrowOnError extends boolean = false>(options: Options<SupportReportData, ThrowOnError>): RequestResult<SupportReportResponses, SupportReportErrors, ThrowOnError> => (options.client ?? client).put<SupportReportResponses, SupportReportErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/{id}/support',
+    ...options
+});
+
+/**
+ * List the aportes of a report
+ *
+ * Returns the aportes of a report from oldest to newest, in pages. Pass the `nextCursor` of a page as `cursor` to get the following one. The session that added an aporte is never returned.
+ */
+export const listReportContributions = <ThrowOnError extends boolean = false>(options: Options<ListReportContributionsData, ThrowOnError>): RequestResult<ListReportContributionsResponses, ListReportContributionsErrors, ThrowOnError> => (options.client ?? client).get<ListReportContributionsResponses, ListReportContributionsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/{id}/contributions',
+    ...options
+});
+
+/**
+ * Add an aporte to a report
+ *
+ * Adds an aporte (a text with an optional photo) to a report. It also marks "También me afecta" for the caller, in the same transaction; a caller who already supports the report, or who is its author, gets the aporte added and the count left as it was. The photo is cleaned and stored by the server. One neighbor can add at most 10 aportes in any 10-minute window.
+ */
+export const createReportContribution = <ThrowOnError extends boolean = false>(options: Options<CreateReportContributionData, ThrowOnError>): RequestResult<CreateReportContributionResponses, CreateReportContributionErrors, ThrowOnError> => (options.client ?? client).post<CreateReportContributionResponses, CreateReportContributionErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/{id}/contributions',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
 });

@@ -1,7 +1,27 @@
 <script setup lang="ts">
+import type { JoinInput } from '~/composables/useJoinReport'
+
 definePageMeta({ focusedOnMobile: true })
 
 const draft = useReportDraftStore()
+
+const { join, isPending: joining, errorMessage: joinError } = useJoinReport(
+  () => draft.joinTarget?.id ?? '',
+  () => draft.reset()
+)
+
+// The aporte carries the first draft photo, which the join screen also shows.
+const firstPhoto = computed(() => draft.photos[0])
+
+function joinReport(input: JoinInput) {
+  join({ ...input, ...(firstPhoto.value && { photo: firstPhoto.value.blob }) })
+}
+
+// Back to the dialog with the same results.
+function backToSimilar() {
+  draft.joinTarget = null
+  draft.similarOpen = true
+}
 
 const steps = [
   { title: 'Qué pasa', icon: 'i-lucide-message-circle' },
@@ -33,7 +53,34 @@ async function discardAndLeave() {
 </script>
 
 <template>
-  <div class="mx-auto flex min-h-screen w-full max-w-[560px] flex-col bg-default lg:min-h-0 lg:rounded-xl lg:border lg:border-default">
+  <div v-if="draft.joinTarget" class="mx-auto flex min-h-screen w-full max-w-[560px] flex-col bg-default lg:min-h-0 lg:rounded-xl lg:border lg:border-default">
+    <div class="flex h-14 items-center gap-1 border-b border-default pr-4 pl-2">
+      <UButton icon="i-lucide-arrow-left" color="neutral" variant="ghost" aria-label="Atrás" @click="backToSimilar" />
+      <h1 class="flex-1 px-1 font-semibold text-highlighted">
+        Sumarte a este reporte
+      </h1>
+    </div>
+    <div class="flex-1 p-4">
+      <ReportJoin
+        :title="draft.joinTarget.title"
+        :category="draft.joinTarget.category"
+        :status="draft.joinTarget.status"
+        :cover-photo="draft.joinTarget.coverPhoto"
+        :affected-count="draft.joinTarget.affectedCount"
+        :distance-meters="draft.joinTarget.distanceMeters"
+        :editable="false"
+        :text="draft.contributionText"
+        :photo-url="firstPhoto?.url"
+        :initial-name="draft.authorName"
+        :pending="joining"
+        :error="joinError"
+        @back="backToSimilar"
+        @submit="joinReport"
+      />
+    </div>
+  </div>
+
+  <div v-else class="mx-auto flex min-h-screen w-full max-w-[560px] flex-col bg-default lg:min-h-0 lg:rounded-xl lg:border lg:border-default">
     <div class="flex h-14 items-center gap-1 border-b border-default pr-4 pl-2">
       <UButton
         v-if="draft.step > 1"
@@ -66,6 +113,8 @@ async function discardAndLeave() {
       <ReportStepPhotoAndPlace v-else-if="draft.step === 2" />
       <ReportStepReview v-else />
     </div>
+
+    <ReportSimilarDialog />
 
     <UModal
       v-model:open="confirmingClose"

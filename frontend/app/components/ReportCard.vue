@@ -41,9 +41,14 @@ const place = computed(() => [
         {{ report.title }}
       </h2>
 
-      <p v-if="place" class="flex items-center gap-1 text-xs text-muted">
-        <UIcon name="i-lucide-map-pin" class="size-3.5 shrink-0" />
-        <span class="truncate">{{ place }}</span>
+      <p class="flex items-center gap-1 text-xs text-muted">
+        <template v-if="place">
+          <UIcon name="i-lucide-map-pin" class="size-3.5 shrink-0" />
+          <span class="truncate">{{ place }}</span>
+        </template>
+        <span class="flex-1" />
+        <UIcon name="i-lucide-users" class="size-3.5 shrink-0" />
+        <span class="shrink-0">{{ report.affectedCount }}</span>
       </p>
     </UCard>
   </NuxtLink>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { FormError } from '@nuxt/ui'
+import { useMutation } from '@tanstack/vue-query'
+import { findSimilarReports } from '~/api'
 
 const draft = useReportDraftStore()
 
@@ -70,8 +72,36 @@ watch(() => draft.location, (position) => {
   form.value?.clear('location')
 })
 
+// Looks for nearby reports about the same problem; any failure just moves on to step 3.
+const { mutate: checkSimilar, isPending: checking } = useMutation({
+  mutationFn: async () => {
+    const { data, error } = await findSimilarReports({
+      body: {
+        title: draft.title.trim(),
+        ...(draft.details.trim() && { details: draft.details.trim() }),
+        latitude: draft.location!.lat,
+        longitude: draft.location!.lng
+      }
+    })
+    if (error !== undefined || !data) throw new Error('Similar check failed')
+    return data.items
+  },
+  onSuccess: (items) => {
+    if (items.length) {
+      draft.similar = items
+      draft.similarOpen = true
+    } else {
+      draft.step = 3
+    }
+  },
+  onError: () => {
+    draft.step = 3
+  }
+})
+
 function next() {
-  draft.step = 3
+  if (checking.value) return
+  checkSimilar()
 }
 </script>
 
@@ -188,7 +218,8 @@ function next() {
     <UButton
       type="submit"
       label="Seguir"
-      :disabled="adding || !draft.ready"
+      :loading="checking"
+      :disabled="adding || !draft.ready || checking"
       trailing-icon="i-lucide-chevron-right"
       block
     />

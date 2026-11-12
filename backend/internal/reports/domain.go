@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pgvector/pgvector-go"
 )
 
 // StatusPublished is the status every report starts with.
@@ -27,6 +28,22 @@ var (
 	ErrNotFound = errors.New("report not found")
 	// ErrInvalidCursor is returned when a page cursor is not one the API issued.
 	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrIsAuthor is returned when the author of a report tries to change their
+	// support: the author always counts as affected.
+	ErrIsAuthor = errors.New("author cannot change support")
+	// ErrComparisonUnavailable is returned when the similar reports cannot be
+	// checked because the text-comparison service failed.
+	ErrComparisonUnavailable = errors.New("comparison unavailable")
+	// ErrTooManyContributions is returned when a neighbor reached the aporte
+	// limit. It is always wrapped in a TooManyContributionsError.
+	ErrTooManyContributions = errors.New("too many contributions")
+)
+
+// Support states: how a caller relates to a report.
+const (
+	SupportAuthor    = "author"
+	SupportSupporter = "supporter"
+	SupportNone      = "none"
 )
 
 // TooManyReportsError tells how long the neighbor has to wait.
@@ -39,6 +56,17 @@ func (e *TooManyReportsError) Error() string {
 }
 
 func (e *TooManyReportsError) Unwrap() error { return ErrTooManyReports }
+
+// TooManyContributionsError tells how long the neighbor has to wait.
+type TooManyContributionsError struct {
+	RetryAfter time.Duration
+}
+
+func (e *TooManyContributionsError) Error() string {
+	return fmt.Sprintf("%v: retry after %s", ErrTooManyContributions, e.RetryAfter)
+}
+
+func (e *TooManyContributionsError) Unwrap() error { return ErrTooManyContributions }
 
 // Report is a published report, as it is stored.
 type Report struct {
@@ -55,6 +83,16 @@ type Report struct {
 	Longitude     float64
 	AuthorName    string // empty means "Vecino anónimo"
 	Photos        []Photo
+
+	// Embedding is the meaning of the title and details. It is set when the
+	// report is created, and nil when it could not be obtained yet.
+	Embedding *pgvector.Vector
+
+	// Filled when the report is read back, for one caller.
+	AffectedCount     int  // the author plus every other supporter
+	ContributionCount int  // number of aportes
+	IsAuthor          bool // the caller published the report
+	Supported         bool // the caller marked "También me afecta"
 }
 
 // Photo is a stored photo of a report; Position starts at 1.
@@ -81,6 +119,7 @@ type ReportSummary struct {
 	CreatedAt     time.Time
 	CoverKey      string // storage key of the first photo
 	Distance      *int   // whole meters from the requested location; nil without one
+	AffectedCount int    // the author plus every other supporter
 }
 
 // ListParams selects one page of the feed. The page continues after the
@@ -151,4 +190,56 @@ type SearchParams struct {
 type SearchHit struct {
 	ReportSummary
 	ExactDistance float64
+}
+
+// SimilarParams selects the open reports near a point whose embedding is within
+// MaxDistance (cosine distance) of Embedding. At most 5 come back.
+type SimilarParams struct {
+	Embedding   pgvector.Vector
+	Latitude    float64
+	Longitude   float64
+	MaxDistance float64
+}
+
+// SimilarReport is a report as the similar-reports dialog shows it. It never
+// carries the author, nor the details.
+type SimilarReport struct {
+	ID            uuid.UUID
+	Title         string
+	CategorySlug  string
+	CategoryLabel string
+	Status        string
+	CreatedAt     time.Time
+	CoverKey      string // storage key of the first photo
+	Distance      int    // whole meters from the checked location
+	AffectedCount int    // the author plus every other supporter
+}
+
+// ReportText is what the backfill job needs to embed a report.
+type ReportText struct {
+	ID      uuid.UUID
+	Title   string
+	Details string // empty when not given
+}
+
+// Contribution is an aporte: a text with an optional photo added to a report.
+type Contribution struct {
+	ID         uuid.UUID
+	ReportID   uuid.UUID
+	AuthorID   uuid.UUID // session that added it; never shown, and not read back
+	AuthorName string    // empty means "Vecino anónimo"
+	Text       string
+	PhotoKey   string // empty when it has no photo
+	CreatedAt  time.Time
+}
+
+// ContributionParams selects one page of the aportes of a report, oldest
+// first. The page continues after the (After, AfterID) key when HasAfter is
+// set, and holds at most Limit aportes.
+type ContributionParams struct {
+	ReportID uuid.UUID
+	HasAfter bool
+	After    time.Time
+	AfterID  uuid.UUID
+	Limit    int
 }

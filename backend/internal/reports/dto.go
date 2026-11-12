@@ -41,6 +41,10 @@ type ReportDTO struct {
 	AuthorName    string // empty means "Vecino anónimo"
 	CreatedAt     time.Time
 	Photos        []PhotoDTO
+
+	AffectedCount     int    // the author plus every other supporter
+	ContributionCount int    // number of aportes
+	Support           string // SupportAuthor, SupportSupporter or SupportNone
 }
 
 // PhotoDTO is a photo of a report, as a temporary signed link.
@@ -93,6 +97,7 @@ type ReportSummaryDTO struct {
 	CreatedAt      time.Time
 	CoverPhoto     PhotoDTO
 	DistanceMeters *int // nil when no location was given
+	AffectedCount  int
 }
 
 // ReportPageDTO is one page of the feed.
@@ -110,4 +115,77 @@ type SearchReportsInput struct {
 	Limit     int
 	Latitude  *float64
 	Longitude *float64
+}
+
+// SimilarReportsInput is what the service needs to look for similar reports: a
+// draft's text and location.
+type SimilarReportsInput struct {
+	Title     string
+	Details   string
+	Latitude  float64
+	Longitude float64
+}
+
+// SimilarReportDTO is a similar report as the dialog shows it. It never
+// carries the details, the author name nor the id of the session that
+// published it.
+type SimilarReportDTO struct {
+	ID             uuid.UUID
+	Title          string
+	CategorySlug   string
+	CategoryLabel  string
+	Status         string
+	CreatedAt      time.Time
+	CoverPhoto     PhotoDTO
+	DistanceMeters int
+	AffectedCount  int
+}
+
+// ReportSupportDTO is the affected count of a report and the caller's relation
+// to it, after a support change.
+type ReportSupportDTO struct {
+	AffectedCount int
+	Support       string // SupportAuthor, SupportSupporter or SupportNone
+}
+
+// ContributionInput is what the service needs to add an aporte. ReportID is
+// the id as received. Photo is the raw file, nil when there is none.
+type ContributionInput struct {
+	ReportID   string
+	AuthorID   uuid.UUID
+	Text       string
+	AuthorName string
+	Photo      []byte
+}
+
+// ContributionDTO is an aporte as the API returns it. It never carries the id
+// of the session that added it.
+type ContributionDTO struct {
+	ID         uuid.UUID
+	Text       string
+	AuthorName string // empty means "Vecino anónimo"
+	CreatedAt  time.Time
+	PhotoURL   string // empty when it has no photo
+}
+
+// CreatedContributionDTO is the result of adding an aporte: the aporte and the
+// support it marked.
+type CreatedContributionDTO struct {
+	Contribution  ContributionDTO
+	AffectedCount int
+	Support       string
+}
+
+// ListContributionsInput is what the service needs to list a page of aportes.
+// A zero Limit means the default page size.
+type ListContributionsInput struct {
+	ReportID string
+	Cursor   string // empty for the first page
+	Limit    int
+}
+
+// ContributionPageDTO is one page of aportes.
+type ContributionPageDTO struct {
+	Items      []ContributionDTO
+	NextCursor string // empty on the last page
 }

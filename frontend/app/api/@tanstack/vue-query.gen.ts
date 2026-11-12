@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/vue-query';
 
 import { client } from '../client.gen';
-import { createReport, getHealthz, getMe, getReport, getReportMap, listCategories, listReports, type Options, searchReports } from '../sdk.gen';
-import type { CreateReportData, CreateReportError, CreateReportResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportMapData, GetReportMapError, GetReportMapResponse, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportsData, ListReportsError, ListReportsResponse, SearchReportsData, SearchReportsError, SearchReportsResponse } from '../types.gen';
+import { createReport, createReportContribution, findSimilarReports, getHealthz, getMe, getReport, getReportMap, listCategories, listReportContributions, listReports, type Options, searchReports, supportReport, unsupportReport } from '../sdk.gen';
+import type { CreateReportContributionData, CreateReportContributionError, CreateReportContributionResponse, CreateReportData, CreateReportError, CreateReportResponse, FindSimilarReportsData, FindSimilarReportsError, FindSimilarReportsResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportMapData, GetReportMapError, GetReportMapResponse, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportContributionsData, ListReportContributionsError, ListReportContributionsResponse, ListReportsData, ListReportsError, ListReportsResponse, SearchReportsData, SearchReportsError, SearchReportsResponse, SupportReportData, SupportReportError, SupportReportResponse, UnsupportReportData, UnsupportReportError, UnsupportReportResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -271,6 +271,25 @@ export const searchReportsInfiniteOptions = (options?: Options<SearchReportsData
     return opts as Omit<typeof opts, 'initialData'>;
 };
 
+/**
+ * Find similar reports near a place
+ *
+ * Returns the open reports (not `atendido` nor `cerrado`) within 300 m of the given location whose title and details are close in meaning to the given text, best match first, at most 5. Only the title and details are compared. The author name and the session that published a report are never returned.
+ */
+export const findSimilarReportsMutation = (options?: Partial<Options<FindSimilarReportsData>>): UseMutationOptions<FindSimilarReportsResponse, FindSimilarReportsError, Options<FindSimilarReportsData>> => {
+    const mutationOptions: UseMutationOptions<FindSimilarReportsResponse, FindSimilarReportsError, Options<FindSimilarReportsData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await findSimilarReports({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 export const getReportQueryKey = (options: Options<GetReportData>) => createQueryKey('getReport', options);
 
 /**
@@ -290,3 +309,112 @@ export const getReportOptions = (options: Options<GetReportData>) => queryOption
     },
     queryKey: getReportQueryKey(options)
 });
+
+/**
+ * Remove "También me afecta"
+ *
+ * Removes the caller's support. Removing support that was not marked changes nothing. The author of the report cannot remove support.
+ */
+export const unsupportReportMutation = (options?: Partial<Options<UnsupportReportData>>): UseMutationOptions<UnsupportReportResponse, UnsupportReportError, Options<UnsupportReportData>> => {
+    const mutationOptions: UseMutationOptions<UnsupportReportResponse, UnsupportReportError, Options<UnsupportReportData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await unsupportReport({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Mark "También me afecta"
+ *
+ * Marks that the problem also affects the caller. Marking twice counts once. The author of the report cannot mark support.
+ */
+export const supportReportMutation = (options?: Partial<Options<SupportReportData>>): UseMutationOptions<SupportReportResponse, SupportReportError, Options<SupportReportData>> => {
+    const mutationOptions: UseMutationOptions<SupportReportResponse, SupportReportError, Options<SupportReportData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await supportReport({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listReportContributionsQueryKey = (options: Options<ListReportContributionsData>) => createQueryKey('listReportContributions', options);
+
+/**
+ * List the aportes of a report
+ *
+ * Returns the aportes of a report from oldest to newest, in pages. Pass the `nextCursor` of a page as `cursor` to get the following one. The session that added an aporte is never returned.
+ */
+export const listReportContributionsOptions = (options: Options<ListReportContributionsData>) => queryOptions<ListReportContributionsResponse, ListReportContributionsError, ListReportContributionsResponse, ReturnType<typeof listReportContributionsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listReportContributions({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listReportContributionsQueryKey(options)
+});
+
+export const listReportContributionsInfiniteQueryKey = (options: Options<ListReportContributionsData>): QueryKey<Options<ListReportContributionsData>> => createQueryKey('listReportContributions', options, true);
+
+/**
+ * List the aportes of a report
+ *
+ * Returns the aportes of a report from oldest to newest, in pages. Pass the `nextCursor` of a page as `cursor` to get the following one. The session that added an aporte is never returned.
+ */
+export const listReportContributionsInfiniteOptions = (options: Options<ListReportContributionsData>) => {
+    const opts = infiniteQueryOptions<ListReportContributionsResponse, ListReportContributionsError, InfiniteData<ListReportContributionsResponse>, QueryKey<Options<ListReportContributionsData>>, string | Pick<QueryKey<Options<ListReportContributionsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<ListReportContributionsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    cursor: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await listReportContributions({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: listReportContributionsInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
+};
+
+/**
+ * Add an aporte to a report
+ *
+ * Adds an aporte (a text with an optional photo) to a report. It also marks "También me afecta" for the caller, in the same transaction; a caller who already supports the report, or who is its author, gets the aporte added and the count left as it was. The photo is cleaned and stored by the server. One neighbor can add at most 10 aportes in any 10-minute window.
+ */
+export const createReportContributionMutation = (options?: Partial<Options<CreateReportContributionData>>): UseMutationOptions<CreateReportContributionResponse, CreateReportContributionError, Options<CreateReportContributionData>> => {
+    const mutationOptions: UseMutationOptions<CreateReportContributionResponse, CreateReportContributionError, Options<CreateReportContributionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createReportContribution({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};

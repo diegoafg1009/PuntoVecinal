@@ -24,16 +24,21 @@ type Server struct {
 	categories categories.Repository
 	reports    reports.Repository
 	photos     reports.PhotoStore
+	embedder   reports.Embedder
 	verifier   auth.RequestVerifier
 }
 
-func NewServer(cfg config.Config, db *pgxpool.Pool, verifier auth.RequestVerifier) (*http.Server, error) {
+// NewServer builds the HTTP server. The embedder turns report texts into
+// vectors for the similar-reports check; it is built by the caller because the
+// backfill job needs the same one.
+func NewServer(cfg config.Config, db *pgxpool.Pool, verifier auth.RequestVerifier, embedder reports.Embedder) (*http.Server, error) {
 	s := &Server{
 		port:       cfg.App.Port,
 		db:         db,
 		categories: repository.NewPgRepository(db),
 		reports:    reportsrepo.NewPgRepository(db),
 		photos:     storage.NewS3(cfg.S3),
+		embedder:   embedder,
 		verifier:   verifier,
 	}
 

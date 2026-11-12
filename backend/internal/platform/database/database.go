@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/config"
 )
@@ -34,6 +35,11 @@ func NewPool(ctx context.Context, cfg config.Database) (*pgxpool.Pool, error) {
 	}
 	if cfg.ConnectTimeout > 0 {
 		pcfg.ConnConfig.ConnectTimeout = cfg.ConnectTimeout
+	}
+
+	// Teach pgx the pgvector `vector` type so embeddings map to pgvector.Vector.
+	pcfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvec.RegisterTypes(ctx, conn)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)

@@ -69,6 +69,27 @@ func (e ReportStatus) Valid() bool {
 	}
 }
 
+// Defines values for SupportState.
+const (
+	Author    SupportState = "author"
+	None      SupportState = "none"
+	Supporter SupportState = "supporter"
+)
+
+// Valid indicates whether the value is a known member of the SupportState enum.
+func (e SupportState) Valid() bool {
+	switch e {
+	case Author:
+		return true
+	case None:
+		return true
+	case Supporter:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SearchReportsParamsSort.
 const (
 	Distance SearchReportsParamsSort = "distance"
@@ -100,6 +121,38 @@ type Category struct {
 	Slug string `json:"slug"`
 }
 
+// Contribution An aporte: a text with an optional photo added to a report. The session that added it is never returned.
+type Contribution struct {
+	// AuthorName Public name of the author; null means "Vecino anónimo".
+	AuthorName *string            `json:"authorName"`
+	CreatedAt  time.Time          `json:"createdAt"`
+	Id         openapi_types.UUID `json:"id"`
+
+	// PhotoUrl Signed link to the photo, valid for one hour; null when there is none.
+	PhotoUrl *string `json:"photoUrl"`
+	Text     string  `json:"text"`
+}
+
+// ContributionPage defines model for ContributionPage.
+type ContributionPage struct {
+	Items []Contribution `json:"items"`
+
+	// NextCursor Cursor of the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// CreateContributionRequest defines model for CreateContributionRequest.
+type CreateContributionRequest struct {
+	// AuthorName Public name of the author. Left out, empty or only spaces means the aporte appears as "Vecino anónimo".
+	AuthorName *string `json:"authorName,omitempty"`
+
+	// Photo One JPEG or PNG photo.
+	Photo *openapi_types.File `json:"photo,omitempty"`
+
+	// Text The aporte, 1 to 1200 characters once trimmed.
+	Text string `json:"text"`
+}
+
 // CreateReportRequest defines model for CreateReportRequest.
 type CreateReportRequest struct {
 	// AuthorName Public name of the author. Left out, empty or only spaces means the report appears as "Vecino anónimo".
@@ -123,6 +176,17 @@ type CreateReportRequest struct {
 	Title string `json:"title"`
 }
 
+// CreatedContribution defines model for CreatedContribution.
+type CreatedContribution struct {
+	AffectedCount int `json:"affectedCount"`
+
+	// Contribution An aporte: a text with an optional photo added to a report. The session that added it is never returned.
+	Contribution Contribution `json:"contribution"`
+
+	// Support Relation of the caller with a report: its author, a neighbor who supports it, or neither.
+	Support SupportState `json:"support"`
+}
+
 // CreatedReport defines model for CreatedReport.
 type CreatedReport struct {
 	Id     openapi_types.UUID  `json:"id"`
@@ -140,9 +204,15 @@ type Location struct {
 
 // Report defines model for Report.
 type Report struct {
+	// AffectedCount The author plus every other neighbor who supports the report.
+	AffectedCount int `json:"affectedCount"`
+
 	// AuthorName Public name of the author; null means "Vecino anónimo".
 	AuthorName *string  `json:"authorName"`
 	Category   Category `json:"category"`
+
+	// ContributionCount Number of aportes of the report.
+	ContributionCount int `json:"contributionCount"`
 
 	// CreatedAt When the report was published.
 	CreatedAt time.Time          `json:"createdAt"`
@@ -158,7 +228,10 @@ type Report struct {
 
 	// Status Status of a report. Statuses only move forward.
 	Status ReportStatus `json:"status"`
-	Title  string       `json:"title"`
+
+	// Support Relation of the caller with a report: its author, a neighbor who supports it, or neither.
+	Support SupportState `json:"support"`
+	Title   string       `json:"title"`
 }
 
 // ReportMap defines model for ReportMap.
@@ -196,8 +269,10 @@ type ReportStatus string
 
 // ReportSummary A report as a card of the list shows it.
 type ReportSummary struct {
-	Category   Category    `json:"category"`
-	CoverPhoto ReportPhoto `json:"coverPhoto"`
+	// AffectedCount The author plus every other neighbor who supports the report.
+	AffectedCount int         `json:"affectedCount"`
+	Category      Category    `json:"category"`
+	CoverPhoto    ReportPhoto `json:"coverPhoto"`
 
 	// CreatedAt When the report was published.
 	CreatedAt time.Time `json:"createdAt"`
@@ -214,8 +289,59 @@ type ReportSummary struct {
 	Title  string       `json:"title"`
 }
 
+// ReportSupport defines model for ReportSupport.
+type ReportSupport struct {
+	AffectedCount int `json:"affectedCount"`
+
+	// Support Relation of the caller with a report: its author, a neighbor who supports it, or neither.
+	Support SupportState `json:"support"`
+}
+
+// SimilarReport A report as the "¿Ya lo reportó alguien?" dialog shows it.
+type SimilarReport struct {
+	// AffectedCount The author plus every other neighbor who supports the report.
+	AffectedCount int      `json:"affectedCount"`
+	Category      Category `json:"category"`
+
+	// CoverPhoto Signed link to the first photo, valid for one hour.
+	CoverPhoto string `json:"coverPhoto"`
+
+	// CreatedAt When the report was published.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DistanceMeters Distance in whole meters from the location sent in the request.
+	DistanceMeters int                `json:"distanceMeters"`
+	Id             openapi_types.UUID `json:"id"`
+
+	// Status Status of a report. Statuses only move forward.
+	Status ReportStatus `json:"status"`
+	Title  string       `json:"title"`
+}
+
+// SimilarReports defines model for SimilarReports.
+type SimilarReports struct {
+	// Items Best match first.
+	Items []SimilarReport `json:"items"`
+}
+
+// SimilarReportsRequest defines model for SimilarReportsRequest.
+type SimilarReportsRequest struct {
+	Details   *string  `json:"details,omitempty"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+
+	// Title What happens, up to 100 characters. Blank titles are rejected.
+	Title string `json:"title"`
+}
+
+// SupportState Relation of the caller with a report: its author, a neighbor who supports it, or neither.
+type SupportState string
+
 // ReportCategoryFilter defines model for ReportCategoryFilter.
 type ReportCategoryFilter = []string
+
+// ReportId defines model for ReportId.
+type ReportId = string
 
 // ReportStatusFilter Status of a report. Statuses only move forward.
 type ReportStatusFilter = ReportStatus
@@ -274,8 +400,23 @@ type SearchReportsParams struct {
 // SearchReportsParamsSort defines parameters for SearchReports.
 type SearchReportsParamsSort string
 
+// ListReportContributionsParams defines parameters for ListReportContributions.
+type ListReportContributionsParams struct {
+	// Cursor Opaque cursor of the page to get, as returned in `nextCursor`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of aportes in the page.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateReportMultipartRequestBody defines body for CreateReport for multipart/form-data ContentType.
 type CreateReportMultipartRequestBody = CreateReportRequest
+
+// FindSimilarReportsJSONRequestBody defines body for FindSimilarReports for application/json ContentType.
+type FindSimilarReportsJSONRequestBody = SimilarReportsRequest
+
+// CreateReportContributionMultipartRequestBody defines body for CreateReportContribution for multipart/form-data ContentType.
+type CreateReportContributionMultipartRequestBody = CreateContributionRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -291,9 +432,24 @@ type ServerInterface interface {
 	// SearchReports Search reports
 	// (GET /reports/search)
 	SearchReports(w http.ResponseWriter, r *http.Request, params SearchReportsParams)
+	// FindSimilarReports Find similar reports near a place
+	// (POST /reports/similar)
+	FindSimilarReports(w http.ResponseWriter, r *http.Request)
 	// GetReport Get a report
 	// (GET /reports/{id})
 	GetReport(w http.ResponseWriter, r *http.Request, id string)
+	// ListReportContributions List the aportes of a report
+	// (GET /reports/{id}/contributions)
+	ListReportContributions(w http.ResponseWriter, r *http.Request, id ReportId, params ListReportContributionsParams)
+	// CreateReportContribution Add an aporte to a report
+	// (POST /reports/{id}/contributions)
+	CreateReportContribution(w http.ResponseWriter, r *http.Request, id ReportId)
+	// UnsupportReport Remove "También me afecta"
+	// (DELETE /reports/{id}/support)
+	UnsupportReport(w http.ResponseWriter, r *http.Request, id ReportId)
+	// SupportReport Mark "También me afecta"
+	// (PUT /reports/{id}/support)
+	SupportReport(w http.ResponseWriter, r *http.Request, id ReportId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -324,9 +480,39 @@ func (_ Unimplemented) SearchReports(w http.ResponseWriter, r *http.Request, par
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// FindSimilarReports Find similar reports near a place
+// (POST /reports/similar)
+func (_ Unimplemented) FindSimilarReports(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetReport Get a report
 // (GET /reports/{id})
 func (_ Unimplemented) GetReport(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListReportContributions List the aportes of a report
+// (GET /reports/{id}/contributions)
+func (_ Unimplemented) ListReportContributions(w http.ResponseWriter, r *http.Request, id ReportId, params ListReportContributionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateReportContribution Add an aporte to a report
+// (POST /reports/{id}/contributions)
+func (_ Unimplemented) CreateReportContribution(w http.ResponseWriter, r *http.Request, id ReportId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UnsupportReport Remove "También me afecta"
+// (DELETE /reports/{id}/support)
+func (_ Unimplemented) UnsupportReport(w http.ResponseWriter, r *http.Request, id ReportId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SupportReport Mark "También me afecta"
+// (PUT /reports/{id}/support)
+func (_ Unimplemented) SupportReport(w http.ResponseWriter, r *http.Request, id ReportId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -595,6 +781,20 @@ func (siw *ServerInterfaceWrapper) SearchReports(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// FindSimilarReports operation middleware
+func (siw *ServerInterfaceWrapper) FindSimilarReports(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FindSimilarReports(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetReport operation middleware
 func (siw *ServerInterfaceWrapper) GetReport(w http.ResponseWriter, r *http.Request) {
 
@@ -612,6 +812,139 @@ func (siw *ServerInterfaceWrapper) GetReport(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReport(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListReportContributions operation middleware
+func (siw *ServerInterfaceWrapper) ListReportContributions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReportContributionsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReportContributions(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateReportContribution operation middleware
+func (siw *ServerInterfaceWrapper) CreateReportContribution(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateReportContribution(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnsupportReport operation middleware
+func (siw *ServerInterfaceWrapper) UnsupportReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnsupportReport(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SupportReport operation middleware
+func (siw *ServerInterfaceWrapper) SupportReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SupportReport(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -747,11 +1080,28 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/reports/search", wrapper.SearchReports)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/reports/similar", wrapper.FindSimilarReports)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/reports/{id}", wrapper.GetReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/reports/{id}/support", wrapper.UnsupportReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/reports/{id}/support", wrapper.SupportReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/reports/{id}/contributions", wrapper.ListReportContributions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/reports/{id}/contributions", wrapper.CreateReportContribution)
 	})
 
 	return r
 }
+
+type AuthorSupportTextResponse string
 
 type NotFoundTextResponse string
 
@@ -965,6 +1315,61 @@ func (response SearchReports401TextResponse) VisitSearchReportsResponse(w http.R
 	return err
 }
 
+type FindSimilarReportsRequestObject struct {
+	Body *FindSimilarReportsJSONRequestBody
+}
+
+type FindSimilarReportsResponseObject interface {
+	VisitFindSimilarReportsResponse(w http.ResponseWriter) error
+}
+
+type FindSimilarReports200JSONResponse SimilarReports
+
+func (response FindSimilarReports200JSONResponse) VisitFindSimilarReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FindSimilarReports400TextResponse string
+
+func (response FindSimilarReports400TextResponse) VisitFindSimilarReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(400)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type FindSimilarReports401TextResponse UnauthorizedTextResponse
+
+func (response FindSimilarReports401TextResponse) VisitFindSimilarReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type FindSimilarReports503TextResponse string
+
+func (response FindSimilarReports503TextResponse) VisitFindSimilarReportsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(503)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
 type GetReportRequestObject struct {
 	Id string `json:"id"`
 }
@@ -1009,6 +1414,260 @@ func (response GetReport404TextResponse) VisitGetReportResponse(w http.ResponseW
 	return err
 }
 
+type ListReportContributionsRequestObject struct {
+	Id     ReportId `json:"id"`
+	Params ListReportContributionsParams
+}
+
+type ListReportContributionsResponseObject interface {
+	VisitListReportContributionsResponse(w http.ResponseWriter) error
+}
+
+type ListReportContributions200JSONResponse ContributionPage
+
+func (response ListReportContributions200JSONResponse) VisitListReportContributionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReportContributions400TextResponse string
+
+func (response ListReportContributions400TextResponse) VisitListReportContributionsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(400)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListReportContributions401TextResponse UnauthorizedTextResponse
+
+func (response ListReportContributions401TextResponse) VisitListReportContributionsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type ListReportContributions404TextResponse NotFoundTextResponse
+
+func (response ListReportContributions404TextResponse) VisitListReportContributionsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(404)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateReportContributionRequestObject struct {
+	Id   ReportId `json:"id"`
+	Body *multipart.Reader
+}
+
+type CreateReportContributionResponseObject interface {
+	VisitCreateReportContributionResponse(w http.ResponseWriter) error
+}
+
+type CreateReportContribution201JSONResponse CreatedContribution
+
+func (response CreateReportContribution201JSONResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateReportContribution400TextResponse string
+
+func (response CreateReportContribution400TextResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(400)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateReportContribution401TextResponse UnauthorizedTextResponse
+
+func (response CreateReportContribution401TextResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateReportContribution404TextResponse NotFoundTextResponse
+
+func (response CreateReportContribution404TextResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(404)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateReportContribution413TextResponse string
+
+func (response CreateReportContribution413TextResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(413)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type CreateReportContribution429ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type CreateReportContribution429TextResponse struct {
+	Body    string
+	Headers CreateReportContribution429ResponseHeaders
+}
+
+func (response CreateReportContribution429TextResponse) VisitCreateReportContributionResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+
+	_, err := w.Write([]byte(fmt.Sprint(response.Body)))
+	return err
+}
+
+type UnsupportReportRequestObject struct {
+	Id ReportId `json:"id"`
+}
+
+type UnsupportReportResponseObject interface {
+	VisitUnsupportReportResponse(w http.ResponseWriter) error
+}
+
+type UnsupportReport200JSONResponse ReportSupport
+
+func (response UnsupportReport200JSONResponse) VisitUnsupportReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnsupportReport401TextResponse UnauthorizedTextResponse
+
+func (response UnsupportReport401TextResponse) VisitUnsupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UnsupportReport404TextResponse NotFoundTextResponse
+
+func (response UnsupportReport404TextResponse) VisitUnsupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(404)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type UnsupportReport409TextResponse AuthorSupportTextResponse
+
+func (response UnsupportReport409TextResponse) VisitUnsupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(409)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type SupportReportRequestObject struct {
+	Id ReportId `json:"id"`
+}
+
+type SupportReportResponseObject interface {
+	VisitSupportReportResponse(w http.ResponseWriter) error
+}
+
+type SupportReport200JSONResponse ReportSupport
+
+func (response SupportReport200JSONResponse) VisitSupportReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SupportReport401TextResponse UnauthorizedTextResponse
+
+func (response SupportReport401TextResponse) VisitSupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(401)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type SupportReport404TextResponse NotFoundTextResponse
+
+func (response SupportReport404TextResponse) VisitSupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(404)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
+type SupportReport409TextResponse AuthorSupportTextResponse
+
+func (response SupportReport409TextResponse) VisitSupportReportResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(409)
+
+	_, err := w.Write([]byte(fmt.Sprint(response)))
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListReports List reports
@@ -1023,9 +1682,24 @@ type StrictServerInterface interface {
 	// SearchReports Search reports
 	// (GET /reports/search)
 	SearchReports(ctx context.Context, request SearchReportsRequestObject) (SearchReportsResponseObject, error)
+	// FindSimilarReports Find similar reports near a place
+	// (POST /reports/similar)
+	FindSimilarReports(ctx context.Context, request FindSimilarReportsRequestObject) (FindSimilarReportsResponseObject, error)
 	// GetReport Get a report
 	// (GET /reports/{id})
 	GetReport(ctx context.Context, request GetReportRequestObject) (GetReportResponseObject, error)
+	// ListReportContributions List the aportes of a report
+	// (GET /reports/{id}/contributions)
+	ListReportContributions(ctx context.Context, request ListReportContributionsRequestObject) (ListReportContributionsResponseObject, error)
+	// CreateReportContribution Add an aporte to a report
+	// (POST /reports/{id}/contributions)
+	CreateReportContribution(ctx context.Context, request CreateReportContributionRequestObject) (CreateReportContributionResponseObject, error)
+	// UnsupportReport Remove "También me afecta"
+	// (DELETE /reports/{id}/support)
+	UnsupportReport(ctx context.Context, request UnsupportReportRequestObject) (UnsupportReportResponseObject, error)
+	// SupportReport Mark "También me afecta"
+	// (PUT /reports/{id}/support)
+	SupportReport(ctx context.Context, request SupportReportRequestObject) (SupportReportResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -1176,6 +1850,37 @@ func (sh *strictHandler) SearchReports(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// FindSimilarReports operation middleware
+func (sh *strictHandler) FindSimilarReports(w http.ResponseWriter, r *http.Request) {
+	var request FindSimilarReportsRequestObject
+
+	var body FindSimilarReportsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FindSimilarReports(ctx, request.(FindSimilarReportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FindSimilarReports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FindSimilarReportsResponseObject); ok {
+		if err := validResponse.VisitFindSimilarReportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetReport operation middleware
 func (sh *strictHandler) GetReport(w http.ResponseWriter, r *http.Request, id string) {
 	var request GetReportRequestObject
@@ -1202,65 +1907,198 @@ func (sh *strictHandler) GetReport(w http.ResponseWriter, r *http.Request, id st
 	}
 }
 
+// ListReportContributions operation middleware
+func (sh *strictHandler) ListReportContributions(w http.ResponseWriter, r *http.Request, id ReportId, params ListReportContributionsParams) {
+	var request ListReportContributionsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReportContributions(ctx, request.(ListReportContributionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReportContributions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReportContributionsResponseObject); ok {
+		if err := validResponse.VisitListReportContributionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateReportContribution operation middleware
+func (sh *strictHandler) CreateReportContribution(w http.ResponseWriter, r *http.Request, id ReportId) {
+	var request CreateReportContributionRequestObject
+
+	request.Id = id
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateReportContribution(ctx, request.(CreateReportContributionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateReportContribution")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateReportContributionResponseObject); ok {
+		if err := validResponse.VisitCreateReportContributionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnsupportReport operation middleware
+func (sh *strictHandler) UnsupportReport(w http.ResponseWriter, r *http.Request, id ReportId) {
+	var request UnsupportReportRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnsupportReport(ctx, request.(UnsupportReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnsupportReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnsupportReportResponseObject); ok {
+		if err := validResponse.VisitUnsupportReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SupportReport operation middleware
+func (sh *strictHandler) SupportReport(w http.ResponseWriter, r *http.Request, id ReportId) {
+	var request SupportReportRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SupportReport(ctx, request.(SupportReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SupportReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SupportReportResponseObject); ok {
+		if err := validResponse.VisitSupportReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"gk5ay4UnbH29/u8A",
+	"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",
+	"x0m0nAqZ4Dfb/x8A",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
