@@ -31,6 +31,34 @@ type fakeRepo struct {
 	searchHits   []SearchHit
 	searchErr    error
 	searchParams SearchParams
+
+	pins          []ReportPin
+	pinsErr       error
+	pinsParams    MapParams
+	unknownErr    error
+	unknownCalled int
+}
+
+func (f *fakeRepo) ListPins(_ context.Context, p MapParams) ([]ReportPin, error) {
+	f.pinsParams = p
+	if f.pinsErr != nil {
+		return nil, f.pinsErr
+	}
+	return f.pins, nil
+}
+
+func (f *fakeRepo) UnknownCategories(_ context.Context, slugs []string) ([]string, error) {
+	f.unknownCalled++
+	if f.unknownErr != nil {
+		return nil, f.unknownErr
+	}
+	var unknown []string
+	for _, s := range slugs {
+		if !f.categories[s] {
+			unknown = append(unknown, s)
+		}
+	}
+	return unknown, nil
 }
 
 func (f *fakeRepo) CategoryExists(_ context.Context, slug string) (bool, error) {
@@ -917,5 +945,139 @@ func TestSearchFailures(t *testing.T) {
 	store.urlErr = errors.New("signer down")
 	if _, err := svc.Search(context.Background(), SearchReportsInput{Query: "a"}); err == nil {
 		t.Error("a signing failure must return an error")
+	}
+}
+
+func TestListPassesTheFiltersToTheRepository(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.categories["alumbrado"] = true
+
+	_, err := svc.List(context.Background(), ListReportsInput{Categories: []string{"limpieza", "alumbrado"}, Status: "publicado"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if want := []string{"limpieza", "alumbrado"}; !reflect.DeepEqual(repo.listParams.Categories, want) {
+		t.Errorf("Categories = %v, want %v", repo.listParams.Categories, want)
+	}
+	if repo.listParams.Status != "publicado" {
+		t.Errorf("Status = %q, want publicado", repo.listParams.Status)
+	}
+}
+
+func TestFiltersDropDuplicateCategories(t *testing.T) {
+	svc, repo, _ := setup()
+
+	if _, err := svc.List(context.Background(), ListReportsInput{Categories: []string{"limpieza", "limpieza"}}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if want := []string{"limpieza"}; !reflect.DeepEqual(repo.listParams.Categories, want) {
+		t.Errorf("Categories = %v, want %v", repo.listParams.Categories, want)
+	}
+}
+
+func TestFiltersAcceptFiveCategoriesAndRejectMore(t *testing.T) {
+	svc, repo, _ := setup()
+	five := []string{"a", "b", "c", "d", "e"}
+	for _, s := range five {
+		repo.categories[s] = true
+	}
+	if _, err := svc.List(context.Background(), ListReportsInput{Categories: five}); err != nil {
+		t.Errorf("5 categories: %v", err)
+	}
+	if _, err := svc.Map(context.Background(), MapInput{Categories: append(five, "f")}); !errors.Is(err, ErrInvalidReport) {
+		t.Errorf("6 categories: err = %v, want ErrInvalidReport", err)
+	}
+}
+
+func TestFiltersRejectUnknownValues(t *testing.T) {
+	svc, _, _ := setup()
+	ctx := context.Background()
+
+	for name, in := range map[string]ListReportsInput{
+		"unknown category": {Categories: []string{"limpieza", "nope"}},
+		"unknown status":   {Status: "nope"},
+	} {
+		if _, err := svc.List(ctx, in); !errors.Is(err, ErrInvalidReport) {
+			t.Errorf("List %s: err = %v, want ErrInvalidReport", name, err)
+		}
+		if _, err := svc.Map(ctx, MapInput{Categories: in.Categories, Status: in.Status}); !errors.Is(err, ErrInvalidReport) {
+			t.Errorf("Map %s: err = %v, want ErrInvalidReport", name, err)
+		}
+	}
+}
+
+func TestFiltersAcceptEveryStatus(t *testing.T) {
+	svc, _, _ := setup()
+	for _, status := range Statuses {
+		if _, err := svc.Map(context.Background(), MapInput{Status: status}); err != nil {
+			t.Errorf("status %q: %v", status, err)
+		}
+	}
+}
+
+func TestFiltersDoNotCheckCategoriesWhenThereAreNone(t *testing.T) {
+	svc, repo, _ := setup()
+	ctx := context.Background()
+
+	if _, err := svc.List(ctx, ListReportsInput{Status: "publicado"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Map(ctx, MapInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.unknownCalled != 0 {
+		t.Errorf("UnknownCategories called %d times, want 0", repo.unknownCalled)
+	}
+}
+
+func TestFilterFailures(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.unknownErr = errors.New("db down")
+	_, err := svc.List(context.Background(), ListReportsInput{Categories: []string{"limpieza"}})
+	if err == nil || errors.Is(err, ErrInvalidReport) {
+		t.Errorf("err = %v, want an internal error", err)
+	}
+}
+
+func TestMapAsksForTheCapAndMapsPinsWithoutTheAuthor(t *testing.T) {
+	svc, repo, _ := setup()
+	id := uuid.New()
+	repo.pins = []ReportPin{{
+		ID: id, Title: "Poste sin luz", CategorySlug: "alumbrado", CategoryLabel: "Alumbrado",
+		Status: "publicado", Latitude: -11.93, Longitude: -77.05,
+	}}
+
+	got, err := svc.Map(context.Background(), MapInput{Status: "publicado"})
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if repo.pinsParams.Limit != 500 {
+		t.Errorf("Limit = %d, want 500", repo.pinsParams.Limit)
+	}
+	if repo.pinsParams.Status != "publicado" {
+		t.Errorf("Status = %q, want publicado", repo.pinsParams.Status)
+	}
+	want := []ReportPinDTO{{
+		ID: id, Title: "Poste sin luz", CategorySlug: "alumbrado", CategoryLabel: "Alumbrado",
+		Status: "publicado", Latitude: -11.93, Longitude: -77.05,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pins = %+v, want %+v", got, want)
+	}
+}
+
+func TestMapEmptyIsNotNil(t *testing.T) {
+	svc, _, _ := setup()
+	got, err := svc.Map(context.Background(), MapInput{})
+	if err != nil || got == nil || len(got) != 0 {
+		t.Errorf("Map = %v, %v; want an empty non-nil slice", got, err)
+	}
+}
+
+func TestMapRepositoryFailure(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.pinsErr = errors.New("db down")
+	if _, err := svc.Map(context.Background(), MapInput{}); err == nil || errors.Is(err, ErrInvalidReport) {
+		t.Errorf("err = %v, want an internal error", err)
 	}
 }

@@ -189,6 +189,70 @@ func (q *Queries) ListReportPhotos(ctx context.Context, reportID pgtype.UUID) ([
 	return items, nil
 }
 
+const listReportPins = `-- name: ListReportPins :many
+SELECT
+  r.id,
+  r.title,
+  r.category_slug,
+  c.label AS category_label,
+  r.status,
+  ST_Y(r.location::geometry)::float8 AS latitude,
+  ST_X(r.location::geometry)::float8 AS longitude
+FROM reports r
+JOIN categories c ON c.slug = r.category_slug
+WHERE (cardinality($1::text[]) = 0 OR r.category_slug = ANY($1::text[]))
+  AND ($2::report_status IS NULL OR r.status = $2::report_status)
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $3
+`
+
+type ListReportPinsParams struct {
+	Categories []string         `json:"categories"`
+	Status     NullReportStatus `json:"status"`
+	RowLimit   int32            `json:"row_limit"`
+}
+
+type ListReportPinsRow struct {
+	ID            pgtype.UUID  `json:"id"`
+	Title         string       `json:"title"`
+	CategorySlug  string       `json:"category_slug"`
+	CategoryLabel string       `json:"category_label"`
+	Status        ReportStatus `json:"status"`
+	Latitude      float64      `json:"latitude"`
+	Longitude     float64      `json:"longitude"`
+}
+
+// The newest reports as map points, with the same category and status filters
+// as ListReports (an empty @categories array matches every category). Never
+// selects author_id nor author_name, and needs no photo.
+func (q *Queries) ListReportPins(ctx context.Context, arg ListReportPinsParams) ([]ListReportPinsRow, error) {
+	rows, err := q.db.Query(ctx, listReportPins, arg.Categories, arg.Status, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportPinsRow
+	for rows.Next() {
+		var i ListReportPinsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CategorySlug,
+			&i.CategoryLabel,
+			&i.Status,
+			&i.Latitude,
+			&i.Longitude,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReports = `-- name: ListReports :many
 SELECT
   r.id,
@@ -209,10 +273,14 @@ SELECT
 FROM reports r
 JOIN categories c ON c.slug = r.category_slug
 JOIN report_photos p ON p.report_id = r.id AND p.position = 1
-WHERE $3::timestamptz IS NULL
-   OR (r.created_at, r.id) < ($3::timestamptz, $4::uuid)
+WHERE (
+    $3::timestamptz IS NULL
+    OR (r.created_at, r.id) < ($3::timestamptz, $4::uuid)
+  )
+  AND (cardinality($5::text[]) = 0 OR r.category_slug = ANY($5::text[]))
+  AND ($6::report_status IS NULL OR r.status = $6::report_status)
 ORDER BY r.created_at DESC, r.id DESC
-LIMIT $5
+LIMIT $7
 `
 
 type ListReportsParams struct {
@@ -220,6 +288,8 @@ type ListReportsParams struct {
 	Lng            pgtype.Float8      `json:"lng"`
 	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
 	AfterID        pgtype.UUID        `json:"after_id"`
+	Categories     []string           `json:"categories"`
+	Status         NullReportStatus   `json:"status"`
 	RowLimit       int32              `json:"row_limit"`
 }
 
@@ -245,6 +315,8 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Lis
 		arg.Lng,
 		arg.AfterCreatedAt,
 		arg.AfterID,
+		arg.Categories,
+		arg.Status,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -467,6 +539,33 @@ func (q *Queries) SearchReportsRecent(ctx context.Context, arg SearchReportsRece
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const unknownCategories = `-- name: UnknownCategories :many
+SELECT s::text AS slug
+FROM unnest($1::text[]) AS s
+WHERE NOT EXISTS (SELECT 1 FROM categories WHERE slug = s)
+`
+
+// The slugs in @slugs that are not one of the fixed categories.
+func (q *Queries) UnknownCategories(ctx context.Context, slugs []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, unknownCategories, slugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

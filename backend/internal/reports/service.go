@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -32,6 +33,8 @@ const (
 	photoLinkTTL    = time.Hour
 	defaultPageSize = 20
 	maxPageSize     = 50
+	maxCategories   = 5
+	maxMapPins      = 500
 
 	// MaxPhotoBytes is the largest photo, as received, that is accepted.
 	MaxPhotoBytes = 10 << 20
@@ -54,6 +57,11 @@ type Repository interface {
 	// Search returns up to params.Limit reports that contain every word, in
 	// the order of params, continuing after the key in params.
 	Search(ctx context.Context, params SearchParams) ([]SearchHit, error)
+	// ListPins returns up to params.Limit map points, newest first.
+	ListPins(ctx context.Context, params MapParams) ([]ReportPin, error)
+	// UnknownCategories returns the slugs that are not one of the fixed
+	// categories.
+	UnknownCategories(ctx context.Context, slugs []string) ([]string, error)
 }
 
 // PhotoStore is the file storage the service needs; implemented by
@@ -174,8 +182,19 @@ func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO,
 		return ReportPageDTO{}, err
 	}
 
+	categories, err := s.checkFilters(ctx, in.Categories, in.Status)
+	if err != nil {
+		return ReportPageDTO{}, err
+	}
+
 	// One more than the page, to know whether there is a next page.
-	params := ListParams{Limit: limit + 1, Latitude: in.Latitude, Longitude: in.Longitude}
+	params := ListParams{
+		Limit:      limit + 1,
+		Latitude:   in.Latitude,
+		Longitude:  in.Longitude,
+		Categories: categories,
+		Status:     in.Status,
+	}
 	if in.Cursor != "" {
 		after, id, err := decodeCursor(in.Cursor)
 		if err != nil {
@@ -198,6 +217,60 @@ func (s *Service) List(ctx context.Context, in ListReportsInput) (ReportPageDTO,
 		return ReportPageDTO{}, err
 	}
 	return page, nil
+}
+
+// Map returns the map points: the newest reports that match the filters, up to
+// maxMapPins, without pages.
+func (s *Service) Map(ctx context.Context, in MapInput) ([]ReportPinDTO, error) {
+	categories, err := s.checkFilters(ctx, in.Categories, in.Status)
+	if err != nil {
+		return nil, err
+	}
+	pins, err := s.repo.ListPins(ctx, MapParams{Categories: categories, Status: in.Status, Limit: maxMapPins})
+	if err != nil {
+		return nil, fmt.Errorf("list report pins: %w", err)
+	}
+	items := make([]ReportPinDTO, len(pins))
+	for i, p := range pins {
+		items[i] = ReportPinDTO{
+			ID:            p.ID,
+			Title:         p.Title,
+			CategorySlug:  p.CategorySlug,
+			CategoryLabel: p.CategoryLabel,
+			Status:        p.Status,
+			Latitude:      p.Latitude,
+			Longitude:     p.Longitude,
+		}
+	}
+	return items, nil
+}
+
+// checkFilters validates the category and status filters of the feed and the
+// map, and returns the categories without duplicates. An empty status means
+// any status.
+func (s *Service) checkFilters(ctx context.Context, categories []string, status string) ([]string, error) {
+	if status != "" && !slices.Contains(Statuses, status) {
+		return nil, invalid("unknown status")
+	}
+	unique := make([]string, 0, len(categories))
+	for _, c := range categories {
+		if !slices.Contains(unique, c) {
+			unique = append(unique, c)
+		}
+	}
+	if len(unique) > maxCategories {
+		return nil, invalid("at most %d categories can be sent", maxCategories)
+	}
+	if len(unique) > 0 {
+		unknown, err := s.repo.UnknownCategories(ctx, unique)
+		if err != nil {
+			return nil, fmt.Errorf("check categories: %w", err)
+		}
+		if len(unknown) > 0 {
+			return nil, invalid("unknown category")
+		}
+	}
+	return unique, nil
 }
 
 // Search returns one page of the search. A report matches when its title or

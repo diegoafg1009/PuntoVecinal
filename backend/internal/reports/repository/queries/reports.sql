@@ -74,10 +74,39 @@ SELECT
 FROM reports r
 JOIN categories c ON c.slug = r.category_slug
 JOIN report_photos p ON p.report_id = r.id AND p.position = 1
-WHERE sqlc.narg('after_created_at')::timestamptz IS NULL
-   OR (r.created_at, r.id) < (sqlc.narg('after_created_at')::timestamptz, sqlc.narg('after_id')::uuid)
+WHERE (
+    sqlc.narg('after_created_at')::timestamptz IS NULL
+    OR (r.created_at, r.id) < (sqlc.narg('after_created_at')::timestamptz, sqlc.narg('after_id')::uuid)
+  )
+  AND (cardinality(@categories::text[]) = 0 OR r.category_slug = ANY(@categories::text[]))
+  AND (sqlc.narg('status')::report_status IS NULL OR r.status = sqlc.narg('status')::report_status)
 ORDER BY r.created_at DESC, r.id DESC
 LIMIT @row_limit;
+
+-- name: ListReportPins :many
+-- The newest reports as map points, with the same category and status filters
+-- as ListReports (an empty @categories array matches every category). Never
+-- selects author_id nor author_name, and needs no photo.
+SELECT
+  r.id,
+  r.title,
+  r.category_slug,
+  c.label AS category_label,
+  r.status,
+  ST_Y(r.location::geometry)::float8 AS latitude,
+  ST_X(r.location::geometry)::float8 AS longitude
+FROM reports r
+JOIN categories c ON c.slug = r.category_slug
+WHERE (cardinality(@categories::text[]) = 0 OR r.category_slug = ANY(@categories::text[]))
+  AND (sqlc.narg('status')::report_status IS NULL OR r.status = sqlc.narg('status')::report_status)
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT @row_limit;
+
+-- name: UnknownCategories :many
+-- The slugs in @slugs that are not one of the fixed categories.
+SELECT s::text AS slug
+FROM unnest(@slugs::text[]) AS s
+WHERE NOT EXISTS (SELECT 1 FROM categories WHERE slug = s);
 
 -- name: SearchReportsRecent :many
 -- One page of the search, newest first, continuing after the (created_at, id)

@@ -10,9 +10,13 @@ paths:
         after one hour; the author name and the session that published the
         report are never returned. Send `latitude` and `longitude` together to
         get the distance to each report; the order never depends on them. Pass
-        the `nextCursor` of a page as `cursor` to get the following one.
+        the `nextCursor` of a page as `cursor` to get the following one. Send
+        `category` and `status` to narrow the list; send the same filters with
+        each `cursor`.
       tags: [reports]
       parameters:
+        - $ref: "#/components/parameters/ReportCategoryFilter"
+        - $ref: "#/components/parameters/ReportStatusFilter"
         - name: cursor
           in: query
           required: false
@@ -56,8 +60,8 @@ paths:
         "400":
           description: >-
             The cursor is not one the API issued, the limit is out of range, only
-            one of latitude and longitude was sent, or a coordinate is out of
-            range.
+            one of latitude and longitude was sent, a coordinate is out of
+            range, or a category or status is unknown.
           content:
             text/plain:
               schema:
@@ -120,6 +124,36 @@ paths:
               schema:
                 type: string
                 example: too many reports
+  /reports/map:
+    get:
+      operationId: getReportMap
+      summary: Get the reports as map points
+      description: >-
+        Returns the published reports as map points, newest first and without
+        pages, up to the 500 newest. Each point carries the id, title, category,
+        status and the location of the problem; the details, the author name and
+        the session that published the report are never returned. Send
+        `category` and `status` to narrow the points.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportCategoryFilter"
+        - $ref: "#/components/parameters/ReportStatusFilter"
+      responses:
+        "200":
+          description: The points, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportMap"
+        "400":
+          description: A category or status is unknown, or more than 5 categories were sent.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: unknown category
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
   /reports/search:
     get:
       operationId: searchReports
@@ -238,6 +272,30 @@ paths:
         "404":
           $ref: ../schemas/common.yaml#/NotFound
 components:
+  parameters:
+    ReportCategoryFilter:
+      name: category
+      in: query
+      required: false
+      description: >-
+        Slugs of the categories to keep; a report in any of them matches. Left
+        out, every category matches.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 5
+        uniqueItems: true
+        items:
+          type: string
+          example: limpieza
+    ReportStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Status to keep. Left out, every status matches.
+      schema:
+        $ref: "#/components/schemas/ReportStatus"
   schemas:
     CreateReportRequest:
       type: object
@@ -373,6 +431,30 @@ components:
           type: string
           nullable: true
           description: Cursor of the next page; null on the last page.
+    ReportMap:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportPin"
+    ReportPin:
+      type: object
+      description: A report as a point of the map.
+      required: [id, title, category, status, location]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        location:
+          $ref: "#/components/schemas/Location"
     Location:
       type: object
       required: [latitude, longitude]

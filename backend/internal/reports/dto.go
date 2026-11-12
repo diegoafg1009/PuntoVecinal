@@ -55,6 +55,30 @@ type ListReportsInput struct {
 	Limit     int
 	Latitude  *float64
 	Longitude *float64
+	// Categories keeps only reports in any of these slugs (at most 5, empty
+	// means every category). Status keeps only that status (empty means every
+	// status).
+	Categories []string
+	Status     string
+}
+
+// MapInput is what the service needs to list the map points; the filters mean
+// the same as in ListReportsInput.
+type MapInput struct {
+	Categories []string
+	Status     string
+}
+
+// ReportPinDTO is a report as a point of the map. It never carries the author
+// name nor the id of the session that published it.
+type ReportPinDTO struct {
+	ID            uuid.UUID
+	Title         string
+	CategorySlug  string
+	CategoryLabel string
+	Status        string
+	Latitude      float64
+	Longitude     float64
 }
 
 // ReportSummaryDTO is a report as a card shows it. It never carries the

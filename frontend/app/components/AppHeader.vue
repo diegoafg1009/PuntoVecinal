@@ -1,23 +1,9 @@
 <script setup lang="ts">
-const toast = useToast()
-
-// The map does not exist yet: tell the neighbor and stay on the current screen.
-function showMapSoon() {
-  toast.add({ title: 'Próximamente', description: 'El mapa estará disponible pronto.' })
-}
-
 const items = [
   { label: 'Inicio', icon: 'i-lucide-house', to: '/' },
   { label: 'Buscar', icon: 'i-lucide-search', to: '/search' },
   { label: 'Avisos', icon: 'i-lucide-bell', to: '/notices' },
-  {
-    label: 'Mapa',
-    icon: 'i-lucide-map',
-    badge: 'Pronto',
-    class: 'text-dimmed',
-    'aria-disabled': 'true',
-    onSelect: showMapSoon
-  }
+  { label: 'Mapa', icon: 'i-lucide-map', to: '/map' }
 ]
 </script>
 

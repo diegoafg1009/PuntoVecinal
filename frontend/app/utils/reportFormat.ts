@@ -20,6 +20,17 @@ const STATUS_COLORS: Record<ReportStatus, BadgeColor> = {
   cerrado: 'neutral'
 }
 
+// Nuxt UI CSS variables, so the pins follow the theme. Derivado and Recibido share a color, as their badges do.
+// Publicado is red (a new, unattended problem): the theme's primary is the same green as success (Atendido).
+const STATUS_PIN_COLORS: Record<ReportStatus, string> = {
+  publicado: 'var(--ui-error)',
+  derivado: 'var(--ui-info)',
+  recibido: 'var(--ui-info)',
+  en_atencion: 'var(--ui-warning)',
+  atendido: 'var(--ui-success)',
+  cerrado: 'var(--ui-text-dimmed)'
+}
+
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
@@ -32,6 +43,11 @@ export function statusLabel(status: ReportStatus): string {
 
 export function statusColor(status: ReportStatus): BadgeColor {
   return STATUS_COLORS[status]
+}
+
+/** Fill color of a report's point on the map. */
+export function statusPinColor(status: ReportStatus): string {
+  return STATUS_PIN_COLORS[status]
 }
 
 function startOfDay(date: Date): number {

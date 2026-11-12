@@ -11,6 +11,9 @@ import (
 // StatusPublished is the status every report starts with.
 const StatusPublished = "publicado"
 
+// Statuses is every report status, in the order a report moves through them.
+var Statuses = []string{"publicado", "derivado", "recibido", "en_atencion", "atendido", "cerrado"}
+
 var (
 	// ErrInvalidReport marks any problem with the data a neighbor sent; the
 	// wrapped message says which one.
@@ -89,6 +92,30 @@ type ListParams struct {
 	Limit     int
 	Latitude  *float64 // with Longitude: distances are computed from this point
 	Longitude *float64
+	// Categories keeps only reports in any of these slugs; empty means every
+	// category. Status keeps only that status; empty means every status.
+	Categories []string
+	Status     string
+}
+
+// ReportPin is a report as a point of the map: where it is and what it is, and
+// never who published it.
+type ReportPin struct {
+	ID            uuid.UUID
+	Title         string
+	CategorySlug  string
+	CategoryLabel string
+	Status        string
+	Latitude      float64
+	Longitude     float64
+}
+
+// MapParams selects the points of the map: the newest Limit reports that match
+// the filters, which mean the same as in ListParams.
+type MapParams struct {
+	Categories []string
+	Status     string
+	Limit      int
 }
 
 // SearchOrder is how the results of a search are sorted.

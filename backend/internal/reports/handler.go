@@ -78,6 +78,12 @@ func (h *Handler) CreateReport(ctx context.Context, req api.CreateReportRequestO
 // ListReports implements the listReports operation of the contract.
 func (h *Handler) ListReports(ctx context.Context, req api.ListReportsRequestObject) (api.ListReportsResponseObject, error) {
 	in := ListReportsInput{Latitude: req.Params.Latitude, Longitude: req.Params.Longitude}
+	if req.Params.Category != nil {
+		in.Categories = *req.Params.Category
+	}
+	if req.Params.Status != nil {
+		in.Status = string(*req.Params.Status)
+	}
 	if req.Params.Cursor != nil {
 		in.Cursor = *req.Params.Cursor
 	}
@@ -94,6 +100,37 @@ func (h *Handler) ListReports(ctx context.Context, req api.ListReportsRequestObj
 	}
 
 	return api.ListReports200JSONResponse(toAPIPage(page)), nil
+}
+
+// GetReportMap implements the getReportMap operation of the contract.
+func (h *Handler) GetReportMap(ctx context.Context, req api.GetReportMapRequestObject) (api.GetReportMapResponseObject, error) {
+	var in MapInput
+	if req.Params.Category != nil {
+		in.Categories = *req.Params.Category
+	}
+	if req.Params.Status != nil {
+		in.Status = string(*req.Params.Status)
+	}
+
+	pins, err := h.service.Map(ctx, in)
+	switch {
+	case errors.Is(err, ErrInvalidReport):
+		return api.GetReportMap400TextResponse(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+
+	items := make([]api.ReportPin, len(pins))
+	for i, p := range pins {
+		items[i] = api.ReportPin{
+			Id:       p.ID,
+			Title:    p.Title,
+			Category: api.Category{Slug: p.CategorySlug, Label: p.CategoryLabel},
+			Status:   api.ReportStatus(p.Status),
+			Location: api.Location{Latitude: p.Latitude, Longitude: p.Longitude},
+		}
+	}
+	return api.GetReportMap200JSONResponse(api.ReportMap{Items: items}), nil
 }
 
 // SearchReports implements the searchReports operation of the contract.

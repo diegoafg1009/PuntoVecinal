@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/vue-query';
 
 import { client } from '../client.gen';
-import { createReport, getHealthz, getMe, getReport, listCategories, listReports, type Options, searchReports } from '../sdk.gen';
-import type { CreateReportData, CreateReportError, CreateReportResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportsData, ListReportsError, ListReportsResponse, SearchReportsData, SearchReportsError, SearchReportsResponse } from '../types.gen';
+import { createReport, getHealthz, getMe, getReport, getReportMap, listCategories, listReports, type Options, searchReports } from '../sdk.gen';
+import type { CreateReportData, CreateReportError, CreateReportResponse, GetHealthzData, GetHealthzError, GetMeData, GetMeError, GetMeResponse, GetReportData, GetReportError, GetReportMapData, GetReportMapError, GetReportMapResponse, GetReportResponse, ListCategoriesData, ListCategoriesError, ListCategoriesResponse, ListReportsData, ListReportsError, ListReportsResponse, SearchReportsData, SearchReportsError, SearchReportsResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -104,7 +104,7 @@ export const listReportsQueryKey = (options?: Options<ListReportsData>) => creat
 /**
  * List reports
  *
- * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one.
+ * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one. Send `category` and `status` to narrow the list; send the same filters with each `cursor`.
  */
 export const listReportsOptions = (options?: Options<ListReportsData>) => queryOptions<ListReportsResponse, ListReportsError, ListReportsResponse, ReturnType<typeof listReportsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -153,7 +153,7 @@ export const listReportsInfiniteQueryKey = (options?: Options<ListReportsData>):
 /**
  * List reports
  *
- * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one.
+ * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one. Send `category` and `status` to narrow the list; send the same filters with each `cursor`.
  */
 export const listReportsInfiniteOptions = (options?: Options<ListReportsData>) => {
     const opts = infiniteQueryOptions<ListReportsResponse, ListReportsError, InfiniteData<ListReportsResponse>, QueryKey<Options<ListReportsData>>, string | Pick<QueryKey<Options<ListReportsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -198,6 +198,26 @@ export const createReportMutation = (options?: Partial<Options<CreateReportData>
     };
     return mutationOptions;
 };
+
+export const getReportMapQueryKey = (options?: Options<GetReportMapData>) => createQueryKey('getReportMap', options);
+
+/**
+ * Get the reports as map points
+ *
+ * Returns the published reports as map points, newest first and without pages, up to the 500 newest. Each point carries the id, title, category, status and the location of the problem; the details, the author name and the session that published the report are never returned. Send `category` and `status` to narrow the points.
+ */
+export const getReportMapOptions = (options?: Options<GetReportMapData>) => queryOptions<GetReportMapResponse, GetReportMapError, GetReportMapResponse, ReturnType<typeof getReportMapQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getReportMap({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getReportMapQueryKey(options)
+});
 
 export const searchReportsQueryKey = (options?: Options<SearchReportsData>) => createQueryKey('searchReports', options);
 

@@ -33,6 +33,11 @@ func (r *PgRepository) CategoryExists(ctx context.Context, slug string) (bool, e
 	return r.queries.CategoryExists(ctx, slug)
 }
 
+// UnknownCategories returns the slugs that are not one of the fixed categories.
+func (r *PgRepository) UnknownCategories(ctx context.Context, slugs []string) ([]string, error) {
+	return r.queries.UnknownCategories(ctx, slugs)
+}
+
 // CountRecent summarizes the reports authorID published since the given time.
 func (r *PgRepository) CountRecent(ctx context.Context, authorID uuid.UUID, since time.Time) (reports.RecentReports, error) {
 	row, err := r.queries.CountRecentReports(ctx, sqlc.CountRecentReportsParams{
@@ -117,7 +122,11 @@ func (r *PgRepository) Get(ctx context.Context, id uuid.UUID) (reports.Report, e
 // List returns up to params.Limit reports, newest first, continuing after the
 // key in params.
 func (r *PgRepository) List(ctx context.Context, params reports.ListParams) ([]reports.ReportSummary, error) {
-	arg := sqlc.ListReportsParams{RowLimit: int32(params.Limit)}
+	arg := sqlc.ListReportsParams{
+		RowLimit:   int32(params.Limit),
+		Categories: nonNil(params.Categories),
+		Status:     nullStatus(params.Status),
+	}
 	if params.HasAfter {
 		arg.AfterCreatedAt = pgtype.Timestamptz{Time: params.After, Valid: true}
 		arg.AfterID = pgUUID(params.AfterID)
@@ -149,6 +158,31 @@ func (r *PgRepository) List(ctx context.Context, params reports.ListParams) ([]r
 		}
 	}
 	return items, nil
+}
+
+// ListPins returns up to params.Limit map points, newest first.
+func (r *PgRepository) ListPins(ctx context.Context, params reports.MapParams) ([]reports.ReportPin, error) {
+	rows, err := r.queries.ListReportPins(ctx, sqlc.ListReportPinsParams{
+		Categories: nonNil(params.Categories),
+		Status:     nullStatus(params.Status),
+		RowLimit:   int32(params.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	pins := make([]reports.ReportPin, len(rows))
+	for i, row := range rows {
+		pins[i] = reports.ReportPin{
+			ID:            row.ID.Bytes,
+			Title:         row.Title,
+			CategorySlug:  row.CategorySlug,
+			CategoryLabel: row.CategoryLabel,
+			Status:        string(row.Status),
+			Latitude:      row.Latitude,
+			Longitude:     row.Longitude,
+		}
+	}
+	return pins, nil
 }
 
 // Search returns up to params.Limit reports that contain every word, in the
@@ -238,6 +272,20 @@ func (r *PgRepository) Search(ctx context.Context, params reports.SearchParams) 
 		}
 	}
 	return hits, nil
+}
+
+// nonNil turns a nil slice into an empty one: the queries read an empty array
+// as "no filter", and a nil slice would be sent as NULL.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// nullStatus maps the empty string to NULL, which means "any status".
+func nullStatus(status string) sqlc.NullReportStatus {
+	return sqlc.NullReportStatus{ReportStatus: sqlc.ReportStatus(status), Valid: status != ""}
 }
 
 func pgUUID(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }

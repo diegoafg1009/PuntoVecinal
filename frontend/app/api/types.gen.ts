@@ -99,6 +99,21 @@ export type Location = {
     longitude: number;
 };
 
+/**
+ * A report as a point of the map.
+ */
+export type ReportPin = {
+    id: string;
+    title: string;
+    category: Category;
+    status: ReportStatus;
+    location: Location;
+};
+
+export type ReportMap = {
+    items: Array<ReportPin>;
+};
+
 export type Report = {
     id: string;
     title: string;
@@ -123,6 +138,16 @@ export type Report = {
      */
     photos: Array<ReportPhoto>;
 };
+
+/**
+ * Slugs of the categories to keep; a report in any of them matches. Left out, every category matches.
+ */
+export type ReportCategoryFilter = Array<string>;
+
+/**
+ * Status to keep. Left out, every status matches.
+ */
+export type ReportStatusFilter = ReportStatus;
 
 export type GetHealthzData = {
     body?: never;
@@ -202,6 +227,14 @@ export type ListReportsData = {
     path?: never;
     query?: {
         /**
+         * Slugs of the categories to keep; a report in any of them matches. Left out, every category matches.
+         */
+        category?: Array<string>;
+        /**
+         * Status to keep. Left out, every status matches.
+         */
+        status?: ReportStatus;
+        /**
          * Opaque cursor of the page to get, as returned in `nextCursor`.
          */
         cursor?: string;
@@ -223,7 +256,7 @@ export type ListReportsData = {
 
 export type ListReportsErrors = {
     /**
-     * The cursor is not one the API issued, the limit is out of range, only one of latitude and longitude was sent, or a coordinate is out of range.
+     * The cursor is not one the API issued, the limit is out of range, only one of latitude and longitude was sent, a coordinate is out of range, or a category or status is unknown.
      */
     400: string;
     /**
@@ -279,6 +312,44 @@ export type CreateReportResponses = {
 };
 
 export type CreateReportResponse = CreateReportResponses[keyof CreateReportResponses];
+
+export type GetReportMapData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Slugs of the categories to keep; a report in any of them matches. Left out, every category matches.
+         */
+        category?: Array<string>;
+        /**
+         * Status to keep. Left out, every status matches.
+         */
+        status?: ReportStatus;
+    };
+    url: '/reports/map';
+};
+
+export type GetReportMapErrors = {
+    /**
+     * A category or status is unknown, or more than 5 categories were sent.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+};
+
+export type GetReportMapError = GetReportMapErrors[keyof GetReportMapErrors];
+
+export type GetReportMapResponses = {
+    /**
+     * The points, possibly none.
+     */
+    200: ReportMap;
+};
+
+export type GetReportMapResponse = GetReportMapResponses[keyof GetReportMapResponses];
 
 export type SearchReportsData = {
     body?: never;

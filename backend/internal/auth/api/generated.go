@@ -295,17 +295,17 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"dFNNb+M4DP0rAnePRpxu9+RbsEAXWaDYYNqZORQ5KDZjs2NLGoruJC383weUnc+2l0BU/Min9/jeoPRd",
-	"8A6dRCjegDEG7yKm4quzvTSe6RUrrUvvBJ3oUXAneWgtOa1i2WBn9YQ724UWoYD+HJyB7IPeRmFyNQzD",
-	"kEGFsWQKQt5BAY8NGvE/0BmKpqMYydWZwV0gxsp4NuRebEvVDBQ7Tkws71F/A/uALDQyp8R367mzolx6",
-	"+oBDBhQXzrt95/uEmv7feN+idWkO489eCUDxBKnHOWR9bOk3z1jKyAzLnkn2D8pwZLNBy8iLXppTdXfg",
-	"9t/3R7jW4qEPdmMjGluWGOOoS2a27DtjnbEHBiqLNYw1RUGVKWKM5N0MJoXSc9K80/MbkTAaQG7rldHl",
-	"8MVqabaejTRoVr0Tb75hSc62piShV3SGMXgWcrUJrRVVWQcKSTL+ErNYLSGDF+Q4dp/PbmZz1d4HdDYQ",
-	"FHA7m89uIYNgpUl65aUVrD2PZg4Z5A3aVprXqeqS4zXKe/JfUHp2MZHvI7KhylhXmV8NSoPjoyaRdM+O",
-	"SmZGrO5eklg/ekGmLWFljl4kE/ShumhW5y0rKOBflHuE7DI5f83nV4GxIbRUJlj+HP1VbP5k3EIBf+Sn",
-	"NObjvzG/x8/iogFDJ9oWK1PatkWeqbZ/z28+63qkmV+kO21u33WW91DAPz0zOplaqre2jhoBRcBaP87H",
-	"JTgYNFV5RMtlc3X5RtWgV2fpgOLpMhdP62F9nHPt6v8HxW1r0FXBk5OoVjibVjzuo2AHQ3YNXFaqj+yN",
-	"3yZXDxodkelB73F3tMNq2nNz2sYz4OnyA/iq37QUG02ILh+jrfTskOpm43lqfN5uuoFhPfweAA==",
+	"dFNNb+M4DP0rAnePRpxu9+RbsEAXWaDYYNqZORQ5MDZjs2NLGonuJC383weUnc+2l0Bi/Min9/jeoHSd",
+	"d5asRCjeIFD0zkZKl68We2lc4Feq9F46K2RFj0I7yX2LbPUWy4Y61BPtsPMtQQH9OTgD2XutRglsaxiG",
+	"IYOKYhnYCzsLBTw2ZMT9IGs4mo5jZFtnhnaeA1XGBcP2BVuuZqDYcWJieU/664PzFIRH5pz4bl3oUJRL",
+	"zx9wyIDjwjq771yfUNP/G+daQpvmBPrZKwEoniD1OIesjy3d5plKGZlR2QeW/YMyHNlsCAOFRS/N6XZ3",
+	"4Pbf90e41uKh97jBSAbLkmIcdcnMNrjOoDV4YKCyoAlUcxRSmSLFyM7OYFIoPSfNOz2/EfGjAWy3Thld",
+	"Dl+slmbrgpGGzKq34sw3Ktlia0oWfiVrAnkXhG1tfIuiKutAYUnGX2IWqyVk8EIhjt3ns5vZXLV3nix6",
+	"hgJuZ/PZLWTgUZqkV16iUO3CaOaQQd4QttK8TrcuOV6TvCf/haQPNibyfaRguDJoK/OrIWlofNQkku7Z",
+	"UcnMCOruJYn1oxcKvGWqzNGLZII+VBcNdd6yggL+JbknyC6T89d8fhUY9L7lMsHy5+iuYvNnoC0U8Ed+",
+	"SmM+/hvze/osLhowsqJtqTIlti2FmWr79/zms65HmvlFutPm9l2HYQ8F/NOHQFamluot1lEjoAhY68f5",
+	"uAQHg6Zb3qG/qkTCUDZXxTeuBi2d5QWKp8ukPK2H9XHytc//HzzA1pCtvGMrUc2xmJY+7qNQB0N2DVxW",
+	"qpjsjdsmnw+qHZHpie9xd7yjatp8c9rPM+Cp+AF81W9ajo1mRtcxEFZ6tsR1s3FhanzebqrAsB5+DwA=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

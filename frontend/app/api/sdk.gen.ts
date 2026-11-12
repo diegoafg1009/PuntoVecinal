@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses, SearchReportsData, SearchReportsErrors, SearchReportsResponses } from './types.gen';
+import type { CreateReportData, CreateReportErrors, CreateReportResponses, GetHealthzData, GetHealthzErrors, GetHealthzResponses, GetMeData, GetMeErrors, GetMeResponses, GetReportData, GetReportErrors, GetReportMapData, GetReportMapErrors, GetReportMapResponses, GetReportResponses, ListCategoriesData, ListCategoriesErrors, ListCategoriesResponses, ListReportsData, ListReportsErrors, ListReportsResponses, SearchReportsData, SearchReportsErrors, SearchReportsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -50,7 +50,7 @@ export const listCategories = <ThrowOnError extends boolean = false>(options?: O
 /**
  * List reports
  *
- * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one.
+ * Returns the published reports from newest to oldest, in pages. Each item carries what a card shows, with a link to its first photo that expires after one hour; the author name and the session that published the report are never returned. Send `latitude` and `longitude` together to get the distance to each report; the order never depends on them. Pass the `nextCursor` of a page as `cursor` to get the following one. Send `category` and `status` to narrow the list; send the same filters with each `cursor`.
  */
 export const listReports = <ThrowOnError extends boolean = false>(options?: Options<ListReportsData, ThrowOnError>): RequestResult<ListReportsResponses, ListReportsErrors, ThrowOnError> => (options?.client ?? client).get<ListReportsResponses, ListReportsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -72,6 +72,17 @@ export const createReport = <ThrowOnError extends boolean = false>(options: Opti
         'Content-Type': null,
         ...options.headers
     }
+});
+
+/**
+ * Get the reports as map points
+ *
+ * Returns the published reports as map points, newest first and without pages, up to the 500 newest. Each point carries the id, title, category, status and the location of the problem; the details, the author name and the session that published the report are never returned. Send `category` and `status` to narrow the points.
+ */
+export const getReportMap = <ThrowOnError extends boolean = false>(options?: Options<GetReportMapData, ThrowOnError>): RequestResult<GetReportMapResponses, GetReportMapErrors, ThrowOnError> => (options?.client ?? client).get<GetReportMapResponses, GetReportMapErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reports/map',
+    ...options
 });
 
 /**
