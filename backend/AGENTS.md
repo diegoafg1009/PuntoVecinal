@@ -13,7 +13,7 @@ When you run `/opsx:apply` (or the `openspec-apply-change` skill) from `backend/
 - **Authentication:** Supabase Auth. The API verifies the Supabase JWT on every request; RLS in the database is a second barrier, not the only one.
 - **Neighbor without an account:** uses an anonymous Supabase session. When they create an account they keep the same user id, so their reports stay theirs.
 - **Files:** any S3-compatible object storage, chosen only by the `S3_*` settings: RustFS locally (`make storage-start`), any S3 provider in production. The bucket is private; photos are served through signed links that expire after one hour.
-- **Embeddings:** Voyage AI. Only the report description is sent, never personal data.
+- **Embeddings:** Voyage AI (`voyage-4`, 1024 dimensions), stored with pgvector. Only the report title and details are sent (see `reports.comparableText`), never the author name, the reference, the location, photos or any user data. `VOYAGE_APIKEY` enables similar reports and the background job that embeds reports published while Voyage was unreachable (every 5 minutes, up to 20 reports per round). Without a key the similar-reports check answers 503 and publishing works as before.
 
 ## Code layout
 
@@ -36,12 +36,20 @@ backend/
       auth/                 token verification (Verifier, Claims) and the contract-driven auth middleware
       httpserver/           router, CORS, request logging; mounts every module
       httperror/            shared 500 handler for errors returned by handlers
+      embedding/            Voyage AI client (`Voyage.Embed`); `ErrUnavailable` for no key, transport errors and non-2xx answers
       imaging/              photo cleaning: decode JPEG/PNG and re-encode as JPEG, which drops EXIF/GPS
       storage/              S3-compatible client (`S3`: `Put`, `Delete`, signed `URL`), AWS SDK for Go v2
       config/, database/, logging/
 ```
 
-Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`), `reports` (`POST /reports`, `GET /reports` with the optional `category` and `status` filters, `GET /reports/map` with the same filters, `GET /reports/search`, `GET /reports/{id}`) and `system` (`GET /healthz`). Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database or file storage also take their store), which `internal/platform/httpserver` calls to mount it.
+Today the modules are `auth` (`GET /me`), `categories` (`GET /categories`), `reports` and `system` (`GET /healthz`). `reports` has:
+
+- `POST /reports` (publish, multipart), `GET /reports` (feed, with the optional `category` and `status` filters), `GET /reports/map` (same filters), `GET /reports/search` and `GET /reports/{id}`, which also returns the affected count, the number of aportes and the caller's support state;
+- `POST /reports/similar`: open reports within 300 m whose title and details are close in meaning (503 when Voyage is unavailable);
+- `PUT`/`DELETE /reports/{id}/support`: "También me afecta" (409 for the author, who always counts as affected);
+- `GET`/`POST /reports/{id}/contributions`: list the aportes of a report, and add one (text, optional photo, optional author name), which also marks the caller's support in one transaction.
+
+Each module exposes a `Register(r chi.Router, verifier auth.RequestVerifier, ...)` function (modules that need the database or file storage also take their store), which `internal/platform/httpserver` calls to mount it.
 
 ## Contract
 

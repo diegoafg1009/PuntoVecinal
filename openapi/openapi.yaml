@@ -42,8 +42,14 @@ paths:
     $ref: ./modules/reports.yaml#/paths/~1reports~1map
   /reports/search:
     $ref: ./modules/reports.yaml#/paths/~1reports~1search
+  /reports/similar:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1similar
   /reports/{id}:
     $ref: ./modules/reports.yaml#/paths/~1reports~1{id}
+  /reports/{id}/support:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}~1support
+  /reports/{id}/contributions:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}~1contributions
 components:
   securitySchemes:
     bearerAuth:

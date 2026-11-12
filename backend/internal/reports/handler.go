@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,6 +26,12 @@ const (
 	maxRequestBytes = 3*MaxPhotoBytes + 1<<20
 	// maxFieldBytes caps each text field (details is at most 1000 characters).
 	maxFieldBytes = 16 << 10
+	// maxContributionBytes caps the multipart body of an aporte: one photo plus
+	// room for the text fields.
+	maxContributionBytes = MaxPhotoBytes + 64<<10
+	// maxJSONBytes caps the JSON body of the similar-reports check: up to 1100
+	// characters of text, at most 4 bytes each, plus the coordinates.
+	maxJSONBytes = 16 << 10
 )
 
 type Handler struct {
@@ -173,6 +181,7 @@ func toAPIPage(page ReportPageDTO) api.ReportPage {
 			CreatedAt:      r.CreatedAt,
 			CoverPhoto:     api.ReportPhoto{Url: r.CoverPhoto.URL},
 			DistanceMeters: r.DistanceMeters,
+			AffectedCount:  r.AffectedCount,
 		}
 	}
 	return api.ReportPage{Items: items, NextCursor: optional(page.NextCursor)}
@@ -180,7 +189,11 @@ func toAPIPage(page ReportPageDTO) api.ReportPage {
 
 // GetReport implements the getReport operation of the contract.
 func (h *Handler) GetReport(ctx context.Context, req api.GetReportRequestObject) (api.GetReportResponseObject, error) {
-	r, err := h.service.Get(ctx, req.Id)
+	caller, err := callerID(ctx)
+	if err != nil {
+		return api.GetReport401TextResponse("unauthorized"), nil
+	}
+	r, err := h.service.Get(ctx, req.Id, caller)
 	if errors.Is(err, ErrNotFound) {
 		return api.GetReport404TextResponse("not found"), nil
 	}
@@ -203,7 +216,211 @@ func (h *Handler) GetReport(ctx context.Context, req api.GetReportRequestObject)
 		AuthorName: optional(r.AuthorName),
 		CreatedAt:  r.CreatedAt,
 		Photos:     photos,
+
+		AffectedCount:     r.AffectedCount,
+		ContributionCount: r.ContributionCount,
+		Support:           api.SupportState(r.Support),
 	}, nil
+}
+
+// errNoClaims means the request has no verified session. The auth middleware
+// already rejects such requests, so this is a second barrier.
+var errNoClaims = errors.New("no session")
+
+// callerID returns the user id of the verified session.
+func callerID(ctx context.Context) (uuid.UUID, error) {
+	claims, ok := auth.ClaimsFrom(ctx)
+	if !ok {
+		return uuid.Nil, errNoClaims
+	}
+	id, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("token subject is not a uuid: %w", err)
+	}
+	return id, nil
+}
+
+// FindSimilarReports implements the findSimilarReports operation of the
+// contract.
+func (h *Handler) FindSimilarReports(ctx context.Context, req api.FindSimilarReportsRequestObject) (api.FindSimilarReportsResponseObject, error) {
+	if _, err := callerID(ctx); errors.Is(err, errNoClaims) {
+		return api.FindSimilarReports401TextResponse("unauthorized"), nil
+	} else if err != nil {
+		return nil, err
+	}
+	if req.Body == nil {
+		return api.FindSimilarReports400TextResponse("body is required"), nil
+	}
+
+	// The coordinates are pointers so that a missing one is not read as 0.
+	if req.Body.Latitude == nil || req.Body.Longitude == nil {
+		return api.FindSimilarReports400TextResponse("latitude and longitude are required"), nil
+	}
+	in := SimilarReportsInput{Title: req.Body.Title, Latitude: *req.Body.Latitude, Longitude: *req.Body.Longitude}
+	if req.Body.Details != nil {
+		in.Details = *req.Body.Details
+	}
+	found, err := h.service.Similar(ctx, in)
+	switch {
+	case errors.Is(err, ErrInvalidReport):
+		return api.FindSimilarReports400TextResponse(err.Error()), nil
+	case errors.Is(err, ErrComparisonUnavailable):
+		slog.WarnContext(ctx, "similar reports check failed", "error", err)
+		return api.FindSimilarReports503TextResponse("comparison unavailable"), nil
+	case err != nil:
+		return nil, err
+	}
+
+	items := make([]api.SimilarReport, len(found))
+	for i, r := range found {
+		items[i] = api.SimilarReport{
+			Id:             r.ID,
+			Title:          r.Title,
+			Category:       api.Category{Slug: r.CategorySlug, Label: r.CategoryLabel},
+			Status:         api.ReportStatus(r.Status),
+			CreatedAt:      r.CreatedAt,
+			CoverPhoto:     r.CoverPhoto.URL,
+			DistanceMeters: r.DistanceMeters,
+			AffectedCount:  r.AffectedCount,
+		}
+	}
+	return api.FindSimilarReports200JSONResponse(api.SimilarReports{Items: items}), nil
+}
+
+// SupportReport implements the supportReport operation of the contract.
+func (h *Handler) SupportReport(ctx context.Context, req api.SupportReportRequestObject) (api.SupportReportResponseObject, error) {
+	caller, err := callerID(ctx)
+	if errors.Is(err, errNoClaims) {
+		return api.SupportReport401TextResponse("unauthorized"), nil
+	} else if err != nil {
+		return nil, err
+	}
+	out, err := h.service.Support(ctx, req.Id, caller)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return api.SupportReport404TextResponse("not found"), nil
+	case errors.Is(err, ErrIsAuthor):
+		return api.SupportReport409TextResponse(ErrIsAuthor.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+	return api.SupportReport200JSONResponse(toAPISupport(out)), nil
+}
+
+// UnsupportReport implements the unsupportReport operation of the contract.
+func (h *Handler) UnsupportReport(ctx context.Context, req api.UnsupportReportRequestObject) (api.UnsupportReportResponseObject, error) {
+	caller, err := callerID(ctx)
+	if errors.Is(err, errNoClaims) {
+		return api.UnsupportReport401TextResponse("unauthorized"), nil
+	} else if err != nil {
+		return nil, err
+	}
+	out, err := h.service.Unsupport(ctx, req.Id, caller)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return api.UnsupportReport404TextResponse("not found"), nil
+	case errors.Is(err, ErrIsAuthor):
+		return api.UnsupportReport409TextResponse(ErrIsAuthor.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+	return api.UnsupportReport200JSONResponse(toAPISupport(out)), nil
+}
+
+func toAPISupport(s ReportSupportDTO) api.ReportSupport {
+	return api.ReportSupport{AffectedCount: s.AffectedCount, Support: api.SupportState(s.Support)}
+}
+
+// ListReportContributions implements the listReportContributions operation of
+// the contract.
+func (h *Handler) ListReportContributions(ctx context.Context, req api.ListReportContributionsRequestObject) (api.ListReportContributionsResponseObject, error) {
+	if _, err := callerID(ctx); errors.Is(err, errNoClaims) {
+		return api.ListReportContributions401TextResponse("unauthorized"), nil
+	} else if err != nil {
+		return nil, err
+	}
+	in := ListContributionsInput{ReportID: req.Id}
+	if req.Params.Cursor != nil {
+		in.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Limit != nil {
+		in.Limit = *req.Params.Limit
+	}
+
+	page, err := h.service.Contributions(ctx, in)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return api.ListReportContributions404TextResponse("not found"), nil
+	case errors.Is(err, ErrInvalidReport), errors.Is(err, ErrInvalidCursor):
+		return api.ListReportContributions400TextResponse(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+
+	items := make([]api.Contribution, len(page.Items))
+	for i, c := range page.Items {
+		items[i] = toAPIContribution(c)
+	}
+	return api.ListReportContributions200JSONResponse(api.ContributionPage{
+		Items:      items,
+		NextCursor: optional(page.NextCursor),
+	}), nil
+}
+
+// CreateReportContribution implements the createReportContribution operation
+// of the contract. Like CreateReport, it reads the multipart body itself.
+func (h *Handler) CreateReportContribution(ctx context.Context, req api.CreateReportContributionRequestObject) (api.CreateReportContributionResponseObject, error) {
+	authorID, err := callerID(ctx)
+	if errors.Is(err, errNoClaims) {
+		return api.CreateReportContribution401TextResponse("unauthorized"), nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	in, err := readContributionForm(req.Body)
+	switch {
+	case bodyExceeded(ctx), errors.Is(err, ErrPhotoTooLarge):
+		return api.CreateReportContribution413TextResponse("photo too large"), nil
+	case errors.Is(err, ErrInvalidReport):
+		return api.CreateReportContribution400TextResponse(err.Error()), nil
+	case err != nil:
+		return api.CreateReportContribution400TextResponse("invalid multipart body"), nil
+	}
+	in.ReportID, in.AuthorID = req.Id, authorID
+
+	created, err := h.service.Contribute(ctx, in)
+	var limit *TooManyContributionsError
+	switch {
+	case errors.As(err, &limit):
+		wait := int(math.Ceil(limit.RetryAfter.Seconds()))
+		return api.CreateReportContribution429TextResponse{
+			Body:    "too many contributions",
+			Headers: api.CreateReportContribution429ResponseHeaders{RetryAfter: &wait},
+		}, nil
+	case errors.Is(err, ErrNotFound):
+		return api.CreateReportContribution404TextResponse("not found"), nil
+	case errors.Is(err, ErrPhotoTooLarge):
+		return api.CreateReportContribution413TextResponse("photo too large"), nil
+	case errors.Is(err, ErrInvalidReport):
+		return api.CreateReportContribution400TextResponse(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+	return api.CreateReportContribution201JSONResponse(api.CreatedContribution{
+		Contribution:  toAPIContribution(created.Contribution),
+		AffectedCount: created.AffectedCount,
+		Support:       api.SupportState(created.Support),
+	}), nil
+}
+
+func toAPIContribution(c ContributionDTO) api.Contribution {
+	return api.Contribution{
+		Id:         c.ID,
+		Text:       c.Text,
+		AuthorName: optional(c.AuthorName),
+		CreatedAt:  c.CreatedAt,
+		PhotoUrl:   optional(c.PhotoURL),
+	}
 }
 
 // optional maps the empty string to null.
@@ -293,15 +510,85 @@ func readForm(mr *multipart.Reader) (CreateReportInput, error) {
 	return in, nil
 }
 
+// readContributionForm reads the multipart parts of an aporte into the service
+// input, never holding more than the size limits allow. A second photo is
+// rejected: an aporte has at most one.
+func readContributionForm(mr *multipart.Reader) (ContributionInput, error) {
+	var in ContributionInput
+	var hasText bool
+
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return in, err
+		}
+
+		name := part.FormName()
+		switch name {
+		case "photo":
+			if in.Photo != nil {
+				return in, invalid("an aporte has at most one photo")
+			}
+			data, err := io.ReadAll(io.LimitReader(part, MaxPhotoBytes+1))
+			if err != nil {
+				return in, err
+			}
+			if len(data) > MaxPhotoBytes {
+				return in, ErrPhotoTooLarge
+			}
+			in.Photo = data
+		case "text", "authorName":
+			raw, err := io.ReadAll(io.LimitReader(part, maxFieldBytes+1))
+			if err != nil {
+				return in, err
+			}
+			if len(raw) > maxFieldBytes {
+				return in, invalid("%s is too long", name)
+			}
+			if name == "text" {
+				in.Text, hasText = string(raw), true
+			} else {
+				in.AuthorName = string(raw)
+			}
+		default:
+			continue // unknown parts are ignored
+		}
+	}
+
+	if !hasText {
+		return in, invalid("text is required")
+	}
+	return in, nil
+}
+
 type limitedBodyKey struct{}
+
+// bodyLimit is the largest body each operation accepts: an aporte carries one
+// photo, the similar-reports check only a short JSON text, and a report up to
+// three photos.
+func bodyLimit(r *http.Request) int64 {
+	if r.Method != http.MethodPost {
+		return maxRequestBytes
+	}
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/contributions"):
+		return maxContributionBytes
+	case r.URL.Path == "/reports/similar":
+		return maxJSONBytes
+	}
+	return maxRequestBytes
+}
 
 // limitBody caps the request body so a large upload cannot exhaust memory.
 // The multipart reader hides the reader error that says the cap was hit, so
 // the capped body is also kept in the context for bodyExceeded.
-func limitBody(max int64) api.MiddlewareFunc {
+func limitBody() api.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, max)
+			r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r))
 			ctx := context.WithValue(r.Context(), limitedBodyKey{}, r.Body)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -322,17 +609,17 @@ func bodyExceeded(ctx context.Context) bool {
 
 // Register mounts the module routes on r, protected as the module's contract
 // declares.
-func Register(r chi.Router, verifier auth.RequestVerifier, repo Repository, photos PhotoStore) error {
+func Register(r chi.Router, verifier auth.RequestVerifier, repo Repository, photos PhotoStore, embedder Embedder) error {
 	spec, err := api.GetSpec()
 	if err != nil {
 		return err
 	}
-	strict := api.NewStrictHandlerWithOptions(NewHandler(NewService(repo, photos)), nil, api.StrictHTTPServerOptions{
+	strict := api.NewStrictHandlerWithOptions(NewHandler(NewService(repo, photos, embedder)), nil, api.StrictHTTPServerOptions{
 		ResponseErrorHandlerFunc: httperror.Handle,
 	})
 	api.HandlerWithOptions(strict, api.ChiServerOptions{
 		BaseRouter:  r,
-		Middlewares: []api.MiddlewareFunc{auth.Middleware(spec, verifier), limitBody(maxRequestBytes)},
+		Middlewares: []api.MiddlewareFunc{auth.Middleware(spec, verifier), limitBody()},
 	})
 	return nil
 }

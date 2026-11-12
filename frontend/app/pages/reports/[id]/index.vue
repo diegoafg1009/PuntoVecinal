@@ -87,7 +87,7 @@ const location = computed({
       <UButton label="Ir a Inicio" to="/" />
     </div>
 
-    <div v-else-if="query.isError.value || !report" class="space-y-3 p-8 text-center">
+    <div v-else-if="!report" class="space-y-3 p-8 text-center">
       <p class="text-muted">
         No pudimos cargar el reporte.
       </p>
@@ -143,7 +143,22 @@ const location = computed({
         {{ report.details }}
       </p>
 
+      <div class="flex flex-wrap items-center gap-2">
+        <ReportSupportButton :report="report" />
+        <UButton
+          label="Aportar"
+          icon="i-lucide-plus"
+          color="neutral"
+          variant="outline"
+          :to="`/reports/${report.id}/join`"
+        />
+      </div>
+
       <ReportLocationMap v-model:location="location" readonly />
+
+      <USeparator />
+
+      <ReportContributions :report-id="report.id" :count="report.contributionCount" />
     </article>
   </div>
 </template>

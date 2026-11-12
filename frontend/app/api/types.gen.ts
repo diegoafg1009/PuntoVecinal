@@ -53,6 +53,10 @@ export type ReportSummary = {
      * Distance in whole meters from the location sent in the request; null when no location was sent.
      */
     distanceMeters: number | null;
+    /**
+     * The author plus every other neighbor who supports the report.
+     */
+    affectedCount: number;
 };
 
 export type ReportPage = {
@@ -114,6 +118,54 @@ export type ReportMap = {
     items: Array<ReportPin>;
 };
 
+export type SimilarReportsRequest = {
+    /**
+     * What happens, up to 100 characters. Blank titles are rejected.
+     */
+    title: string;
+    details?: string;
+    latitude: number;
+    longitude: number;
+};
+
+/**
+ * A report as the "¿Ya lo reportó alguien?" dialog shows it.
+ */
+export type SimilarReport = {
+    id: string;
+    title: string;
+    category: Category;
+    status: ReportStatus;
+    /**
+     * When the report was published.
+     */
+    createdAt: string;
+    /**
+     * Signed link to the first photo, valid for one hour.
+     */
+    coverPhoto: string;
+    /**
+     * Distance in whole meters from the location sent in the request.
+     */
+    distanceMeters: number;
+    /**
+     * The author plus every other neighbor who supports the report.
+     */
+    affectedCount: number;
+};
+
+export type SimilarReports = {
+    /**
+     * Best match first.
+     */
+    items: Array<SimilarReport>;
+};
+
+/**
+ * Relation of the caller with a report: its author, a neighbor who supports it, or neither.
+ */
+export type SupportState = 'author' | 'supporter' | 'none';
+
 export type Report = {
     id: string;
     title: string;
@@ -137,6 +189,66 @@ export type Report = {
      * Photos in display order.
      */
     photos: Array<ReportPhoto>;
+    /**
+     * The author plus every other neighbor who supports the report.
+     */
+    affectedCount: number;
+    /**
+     * Number of aportes of the report.
+     */
+    contributionCount: number;
+    support: SupportState;
+};
+
+export type ReportSupport = {
+    affectedCount: number;
+    support: SupportState;
+};
+
+/**
+ * An aporte: a text with an optional photo added to a report. The session that added it is never returned.
+ */
+export type Contribution = {
+    id: string;
+    text: string;
+    /**
+     * Public name of the author; null means "Vecino anónimo".
+     */
+    authorName: string | null;
+    createdAt: string;
+    /**
+     * Signed link to the photo, valid for one hour; null when there is none.
+     */
+    photoUrl: string | null;
+};
+
+export type ContributionPage = {
+    items: Array<Contribution>;
+    /**
+     * Cursor of the next page; null on the last page.
+     */
+    nextCursor: string | null;
+};
+
+export type CreateContributionRequest = {
+    /**
+     * The aporte, 1 to 1200 characters once trimmed.
+     */
+    text: string;
+    /**
+     * Public name of the author. Left out, empty or only spaces means the aporte appears as "Vecino anónimo".
+     */
+    authorName?: string;
+    /**
+     * One JPEG or PNG photo.
+     */
+    photo?: Blob | File;
+};
+
+export type CreatedContribution = {
+    contribution: Contribution;
+    affectedCount: number;
+    support: SupportState;
 };
 
 /**
@@ -148,6 +260,11 @@ export type ReportCategoryFilter = Array<string>;
  * Status to keep. Left out, every status matches.
  */
 export type ReportStatusFilter = ReportStatus;
+
+/**
+ * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+ */
+export type ReportId = string;
 
 export type GetHealthzData = {
     body?: never;
@@ -405,6 +522,39 @@ export type SearchReportsResponses = {
 
 export type SearchReportsResponse = SearchReportsResponses[keyof SearchReportsResponses];
 
+export type FindSimilarReportsData = {
+    body: SimilarReportsRequest;
+    path?: never;
+    query?: never;
+    url: '/reports/similar';
+};
+
+export type FindSimilarReportsErrors = {
+    /**
+     * The title is blank or too long, the details are too long, or the location is missing or out of range.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The comparison service is unavailable.
+     */
+    503: string;
+};
+
+export type FindSimilarReportsError = FindSimilarReportsErrors[keyof FindSimilarReportsErrors];
+
+export type FindSimilarReportsResponses = {
+    /**
+     * The similar reports, possibly none.
+     */
+    200: SimilarReports;
+};
+
+export type FindSimilarReportsResponse = FindSimilarReportsResponses[keyof FindSimilarReportsResponses];
+
 export type GetReportData = {
     body?: never;
     path: {
@@ -438,3 +588,172 @@ export type GetReportResponses = {
 };
 
 export type GetReportResponse = GetReportResponses[keyof GetReportResponses];
+
+export type UnsupportReportData = {
+    body?: never;
+    path: {
+        /**
+         * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/reports/{id}/support';
+};
+
+export type UnsupportReportErrors = {
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The resource does not exist.
+     */
+    404: string;
+    /**
+     * The caller is the author of the report, who always counts as affected.
+     */
+    409: string;
+};
+
+export type UnsupportReportError = UnsupportReportErrors[keyof UnsupportReportErrors];
+
+export type UnsupportReportResponses = {
+    /**
+     * The affected count and the caller's support state.
+     */
+    200: ReportSupport;
+};
+
+export type UnsupportReportResponse = UnsupportReportResponses[keyof UnsupportReportResponses];
+
+export type SupportReportData = {
+    body?: never;
+    path: {
+        /**
+         * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/reports/{id}/support';
+};
+
+export type SupportReportErrors = {
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The resource does not exist.
+     */
+    404: string;
+    /**
+     * The caller is the author of the report, who always counts as affected.
+     */
+    409: string;
+};
+
+export type SupportReportError = SupportReportErrors[keyof SupportReportErrors];
+
+export type SupportReportResponses = {
+    /**
+     * The affected count and the caller's support state.
+     */
+    200: ReportSupport;
+};
+
+export type SupportReportResponse = SupportReportResponses[keyof SupportReportResponses];
+
+export type ListReportContributionsData = {
+    body?: never;
+    path: {
+        /**
+         * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * Opaque cursor of the page to get, as returned in `nextCursor`.
+         */
+        cursor?: string;
+        /**
+         * Maximum number of aportes in the page.
+         */
+        limit?: number;
+    };
+    url: '/reports/{id}/contributions';
+};
+
+export type ListReportContributionsErrors = {
+    /**
+     * The cursor is not one the API issued, or the limit is out of range.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The resource does not exist.
+     */
+    404: string;
+};
+
+export type ListReportContributionsError = ListReportContributionsErrors[keyof ListReportContributionsErrors];
+
+export type ListReportContributionsResponses = {
+    /**
+     * A page of aportes, possibly empty.
+     */
+    200: ContributionPage;
+};
+
+export type ListReportContributionsResponse = ListReportContributionsResponses[keyof ListReportContributionsResponses];
+
+export type CreateReportContributionData = {
+    body: CreateContributionRequest;
+    path: {
+        /**
+         * Id of the report (a UUID). It is a plain string so that a malformed id answers 404 like an unknown one.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/reports/{id}/contributions';
+};
+
+export type CreateReportContributionErrors = {
+    /**
+     * The text is blank or too long, the author name is too long, more than one photo was sent, or the photo is not an image.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+    /**
+     * The resource does not exist.
+     */
+    404: string;
+    /**
+     * The photo, or the whole request, is larger than allowed.
+     */
+    413: string;
+    /**
+     * The neighbor added too many aportes in a short time.
+     */
+    429: string;
+};
+
+export type CreateReportContributionError = CreateReportContributionErrors[keyof CreateReportContributionErrors];
+
+export type CreateReportContributionResponses = {
+    /**
+     * The aporte was added.
+     */
+    201: CreatedContribution;
+};
+
+export type CreateReportContributionResponse = CreateReportContributionResponses[keyof CreateReportContributionResponses];
