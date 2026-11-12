@@ -24,6 +24,9 @@ type fakeRepo struct {
 	createErr  error
 	created    []Report
 	counted    time.Time
+	listRows   []ReportSummary
+	listErr    error
+	listParams ListParams
 }
 
 func (f *fakeRepo) CategoryExists(_ context.Context, slug string) (bool, error) {
@@ -52,6 +55,18 @@ func (f *fakeRepo) Get(_ context.Context, id uuid.UUID) (Report, error) {
 		return Report{}, ErrNotFound
 	}
 	return r, nil
+}
+
+func (f *fakeRepo) List(_ context.Context, p ListParams) ([]ReportSummary, error) {
+	f.listParams = p
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	rows := f.listRows
+	if len(rows) > p.Limit {
+		rows = rows[:p.Limit]
+	}
+	return rows, nil
 }
 
 type fakeStore struct {
@@ -451,5 +466,182 @@ func TestReportDTOCarriesNoAuthorID(t *testing.T) {
 	}
 	if _, ok := typ.FieldByName("AuthorID"); ok {
 		t.Error("ReportDTO has AuthorID")
+	}
+}
+
+func summaries(n int) []ReportSummary {
+	base := time.Date(2026, 11, 12, 12, 0, 0, 123456000, time.UTC)
+	rows := make([]ReportSummary, n)
+	for i := range rows {
+		rows[i] = ReportSummary{
+			ID:            uuid.New(),
+			Title:         fmt.Sprintf("Report %d", i),
+			CategorySlug:  "limpieza",
+			CategoryLabel: "Limpieza",
+			Status:        "publicado",
+			CreatedAt:     base.Add(-time.Duration(i) * time.Minute),
+			CoverKey:      fmt.Sprintf("reports/%d/1.jpg", i),
+		}
+	}
+	return rows
+}
+
+func TestListDefaultPageSizeAndNextCursor(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.listRows = summaries(25)
+
+	page, err := svc.List(context.Background(), ListReportsInput{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if repo.listParams.Limit != 21 {
+		t.Errorf("asked the repository for %d rows, want 21", repo.listParams.Limit)
+	}
+	if len(page.Items) != 20 {
+		t.Fatalf("items = %d, want 20", len(page.Items))
+	}
+	if page.NextCursor == "" {
+		t.Fatal("want a next cursor")
+	}
+	at, id, err := decodeCursor(page.NextCursor)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	last := repo.listRows[19]
+	if !at.Equal(last.CreatedAt) || id != last.ID {
+		t.Errorf("cursor = %v/%v, want the 20th item %v/%v", at, id, last.CreatedAt, last.ID)
+	}
+}
+
+func TestListLastPageHasNoCursor(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.listRows = summaries(5)
+
+	page, err := svc.List(context.Background(), ListReportsInput{Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 5 || page.NextCursor != "" {
+		t.Errorf("items = %d, cursor = %q", len(page.Items), page.NextCursor)
+	}
+}
+
+func TestListEmpty(t *testing.T) {
+	svc, _, _ := setup()
+	page, err := svc.List(context.Background(), ListReportsInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Items == nil || len(page.Items) != 0 || page.NextCursor != "" {
+		t.Errorf("page = %+v", page)
+	}
+}
+
+func TestListCursorRoundTripReachesTheRepository(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.listRows = summaries(3)
+	first, err := svc.List(context.Background(), ListReportsInput{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.List(context.Background(), ListReportsInput{Cursor: first.NextCursor, Limit: 2}); err != nil {
+		t.Fatal(err)
+	}
+	p := repo.listParams
+	second := repo.listRows[1]
+	if !p.HasAfter || !p.After.Equal(second.CreatedAt) || p.AfterID != second.ID {
+		t.Errorf("params = %+v, want to continue after %v/%v", p, second.CreatedAt, second.ID)
+	}
+}
+
+func TestListInvalidInput(t *testing.T) {
+	lat, lng := -11.93, -77.05
+	badLat, badLng := 91.0, 181.0
+	tests := map[string]struct {
+		in  ListReportsInput
+		err error
+	}{
+		"limit below range":  {ListReportsInput{Limit: -1}, ErrInvalidReport},
+		"limit above range":  {ListReportsInput{Limit: 51}, ErrInvalidReport},
+		"only latitude":      {ListReportsInput{Latitude: &lat}, ErrInvalidReport},
+		"only longitude":     {ListReportsInput{Longitude: &lng}, ErrInvalidReport},
+		"latitude too big":   {ListReportsInput{Latitude: &badLat, Longitude: &lng}, ErrInvalidReport},
+		"longitude too big":  {ListReportsInput{Latitude: &lat, Longitude: &badLng}, ErrInvalidReport},
+		"cursor not base64":  {ListReportsInput{Cursor: "***"}, ErrInvalidCursor},
+		"cursor wrong shape": {ListReportsInput{Cursor: "aGVsbG8"}, ErrInvalidCursor},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := setup()
+			if _, err := svc.List(context.Background(), tc.in); !errors.Is(err, tc.err) {
+				t.Errorf("err = %v, want %v", err, tc.err)
+			}
+		})
+	}
+}
+
+func TestListLimitZeroMeansDefaultAndBoundariesAreAccepted(t *testing.T) {
+	for _, limit := range []int{0, 1, 50} {
+		svc, _, _ := setup()
+		if _, err := svc.List(context.Background(), ListReportsInput{Limit: limit}); err != nil {
+			t.Errorf("limit %d: %v", limit, err)
+		}
+	}
+}
+
+func TestListPassesTheLocationOnlyWhenGiven(t *testing.T) {
+	svc, repo, _ := setup()
+	if _, err := svc.List(context.Background(), ListReportsInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.listParams.Latitude != nil || repo.listParams.Longitude != nil {
+		t.Errorf("params = %+v, want no location", repo.listParams)
+	}
+
+	lat, lng := -11.93, -77.05
+	repo.listRows = summaries(1)
+	d := 120
+	repo.listRows[0].Distance = &d
+	page, err := svc.List(context.Background(), ListReportsInput{Latitude: &lat, Longitude: &lng})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.listParams.Latitude == nil || *repo.listParams.Latitude != lat || *repo.listParams.Longitude != lng {
+		t.Errorf("params = %+v, want the location", repo.listParams)
+	}
+	if got := page.Items[0].DistanceMeters; got == nil || *got != 120 {
+		t.Errorf("distance = %v, want 120", got)
+	}
+}
+
+func TestListSignsCoversForOneHour(t *testing.T) {
+	svc, repo, _ := setup()
+	repo.listRows = summaries(1)
+	page, err := svc.List(context.Background(), ListReportsInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://storage.test/reports/0/1.jpg?expires=3600"
+	if got := page.Items[0].CoverPhoto.URL; got != want {
+		t.Errorf("cover = %q, want %q", got, want)
+	}
+	if page.Items[0].CategoryLabel != "Limpieza" || page.Items[0].Status != "publicado" {
+		t.Errorf("item = %+v", page.Items[0])
+	}
+}
+
+func TestListFailures(t *testing.T) {
+	svc, repo, store := setup()
+	repo.listRows = summaries(1)
+	store.urlErr = errors.New("signer down")
+	if _, err := svc.List(context.Background(), ListReportsInput{}); err == nil {
+		t.Error("a signing failure must return an error")
+	}
+
+	svc, repo, _ = setup()
+	repo.listErr = errors.New("db down")
+	if _, err := svc.List(context.Background(), ListReportsInput{}); err == nil {
+		t.Error("a repository failure must return an error")
 	}
 }

@@ -8,4 +8,4 @@ command = "codegraph"
 args = ["serve", "--mcp"]
 
 [mcp_servers.atlassian]
-url = "https://mcp.atlassian.com/v1/mcp/authv2"
+url = "https://mcp.atlassian.com/v2/mcp"

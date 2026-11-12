@@ -20,6 +20,49 @@ export type Category = {
     label: string;
 };
 
+/**
+ * Status of a report. Statuses only move forward.
+ */
+export type ReportStatus = 'publicado' | 'derivado' | 'recibido' | 'en_atencion' | 'atendido' | 'cerrado';
+
+export type ReportPhoto = {
+    /**
+     * Signed link to the photo, valid for one hour.
+     */
+    url: string;
+};
+
+/**
+ * A report as a card of the list shows it.
+ */
+export type ReportSummary = {
+    id: string;
+    title: string;
+    category: Category;
+    status: ReportStatus;
+    /**
+     * Free text that helps to find the place.
+     */
+    reference: string | null;
+    /**
+     * When the report was published.
+     */
+    createdAt: string;
+    coverPhoto: ReportPhoto;
+    /**
+     * Distance in whole meters from the location sent in the request; null when no location was sent.
+     */
+    distanceMeters: number | null;
+};
+
+export type ReportPage = {
+    items: Array<ReportSummary>;
+    /**
+     * Cursor of the next page; null on the last page.
+     */
+    nextCursor: string | null;
+};
+
 export type CreateReportRequest = {
     /**
      * Slug of one of the fixed categories.
@@ -51,21 +94,9 @@ export type CreatedReport = {
     status: 'publicado';
 };
 
-/**
- * Status of a report. Statuses only move forward.
- */
-export type ReportStatus = 'publicado' | 'derivado' | 'recibido' | 'en_atencion' | 'atendido' | 'cerrado';
-
 export type Location = {
     latitude: number;
     longitude: number;
-};
-
-export type ReportPhoto = {
-    /**
-     * Signed link to the photo, valid for one hour.
-     */
-    url: string;
 };
 
 export type Report = {
@@ -165,6 +196,52 @@ export type ListCategoriesResponses = {
 };
 
 export type ListCategoriesResponse = ListCategoriesResponses[keyof ListCategoriesResponses];
+
+export type ListReportsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Opaque cursor of the page to get, as returned in `nextCursor`.
+         */
+        cursor?: string;
+        /**
+         * Maximum number of reports in the page.
+         */
+        limit?: number;
+        /**
+         * Latitude of the caller; must be sent together with `longitude`.
+         */
+        latitude?: number;
+        /**
+         * Longitude of the caller; must be sent together with `latitude`.
+         */
+        longitude?: number;
+    };
+    url: '/reports';
+};
+
+export type ListReportsErrors = {
+    /**
+     * The cursor is not one the API issued, the limit is out of range, only one of latitude and longitude was sent, or a coordinate is out of range.
+     */
+    400: string;
+    /**
+     * The token is missing, expired or invalid.
+     */
+    401: string;
+};
+
+export type ListReportsError = ListReportsErrors[keyof ListReportsErrors];
+
+export type ListReportsResponses = {
+    /**
+     * A page of reports, possibly empty.
+     */
+    200: ReportPage;
+};
+
+export type ListReportsResponse = ListReportsResponses[keyof ListReportsResponses];
 
 export type CreateReportData = {
     body: CreateReportRequest;

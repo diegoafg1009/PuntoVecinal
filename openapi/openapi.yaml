@@ -13,7 +13,7 @@ tags:
   - name: categories
     description: Fixed report categories.
   - name: reports
-    description: Publishing neighbor reports.
+    description: Publishing and reading neighbor reports.
 paths:
   /healthz:
     get:

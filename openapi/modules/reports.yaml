@@ -1,6 +1,70 @@
 # Module reports: publishing and reading neighbor reports. Referenced from ../openapi.yaml.
 paths:
   /reports:
+    get:
+      operationId: listReports
+      summary: List reports
+      description: >-
+        Returns the published reports from newest to oldest, in pages. Each item
+        carries what a card shows, with a link to its first photo that expires
+        after one hour; the author name and the session that published the
+        report are never returned. Send `latitude` and `longitude` together to
+        get the distance to each report; the order never depends on them. Pass
+        the `nextCursor` of a page as `cursor` to get the following one.
+      tags: [reports]
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor of the page to get, as returned in `nextCursor`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of reports in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: latitude
+          in: query
+          required: false
+          description: Latitude of the caller; must be sent together with `longitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          required: false
+          description: Longitude of the caller; must be sent together with `latitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+      responses:
+        "200":
+          description: A page of reports, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPage"
+        "400":
+          description: >-
+            The cursor is not one the API issued, the limit is out of range, only
+            one of latitude and longitude was sent, or a coordinate is out of
+            range.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: invalid cursor
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
     post:
       operationId: createReport
       summary: Publish a report
@@ -180,6 +244,48 @@ components:
           description: Photos in display order.
           items:
             $ref: "#/components/schemas/ReportPhoto"
+    ReportSummary:
+      type: object
+      description: A report as a card of the list shows it.
+      required: [id, title, category, status, reference, createdAt, coverPhoto, distanceMeters]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        reference:
+          type: string
+          nullable: true
+          description: Free text that helps to find the place.
+        createdAt:
+          type: string
+          format: date-time
+          description: When the report was published.
+        coverPhoto:
+          $ref: "#/components/schemas/ReportPhoto"
+        distanceMeters:
+          type: integer
+          nullable: true
+          description: >-
+            Distance in whole meters from the location sent in the request; null
+            when no location was sent.
+    ReportPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportSummary"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor of the next page; null on the last page.
     Location:
       type: object
       required: [latitude, longitude]
