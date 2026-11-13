@@ -1,0 +1,9 @@
+# Lint rules for the API contract (used by CI: `redocly lint --config openapi/redocly.yaml`).
+extends:
+  - recommended
+
+rules:
+  # The server URL depends on the environment and is not part of the contract.
+  no-empty-servers: off
+  info-license: off
+  operation-4xx-response: off

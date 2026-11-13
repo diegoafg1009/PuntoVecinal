@@ -1,0 +1,53 @@
+package httpserver
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
+)
+
+type fakeDB struct{}
+
+func (fakeDB) Ping(context.Context) error { return nil }
+
+type fakeCategories struct{}
+
+func (fakeCategories) List(context.Context) ([]categories.Category, error) {
+	return nil, nil
+}
+
+type rejectAll struct{}
+
+func (rejectAll) VerifyRequest(*http.Request) (auth.Claims, error) {
+	return auth.Claims{}, auth.ErrUnauthorized
+}
+
+func TestRouterAppliesEachContractsSecurity(t *testing.T) {
+	s := &Server{db: fakeDB{}, categories: fakeCategories{}, verifier: rejectAll{}}
+	h, err := s.RegisterRoutes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		path string
+		want int
+	}{
+		{"/healthz", http.StatusOK},      // security: [] in the contract
+		{"/me", http.StatusUnauthorized}, // protected by default
+		{"/categories", http.StatusUnauthorized},
+		{"/reports/3f2a1c9e-8b7d-4e6f-a5c4-1b2d3e4f5a6b", http.StatusUnauthorized},
+		{"/nope", http.StatusNotFound}, // not in any contract
+	}
+	for _, tt := range tests {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		if w.Code != tt.want {
+			t.Errorf("GET %s without a token: status = %d, want %d", tt.path, w.Code, tt.want)
+		}
+	}
+}

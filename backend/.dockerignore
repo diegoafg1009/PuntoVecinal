@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+bin/
+main
+tmp/
+compose.yaml
+Makefile
+*.md

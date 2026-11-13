@@ -6,10 +6,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
-	api "github.com/diegoafg1009/PuntoVecinal/backend/internal/server/gen"
+	authmodule "github.com/diegoafg1009/PuntoVecinal/backend/internal/auth"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/categories"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/reports"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/system"
 )
 
-func (s *Server) RegisterRoutes() http.Handler {
+// RegisterRoutes builds the router: shared middleware plus one mount per API
+// module. Which operations need a token is decided by each module's contract.
+func (s *Server) RegisterRoutes() (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Use(requestLogger)
 
@@ -21,7 +26,18 @@ func (s *Server) RegisterRoutes() http.Handler {
 		MaxAge:           300,
 	}))
 
-	api.HandlerFromMux(api.NewStrictHandler(s, nil), r)
+	if err := system.Register(r, s.verifier, s.db); err != nil {
+		return nil, err
+	}
+	if err := authmodule.Register(r, s.verifier); err != nil {
+		return nil, err
+	}
+	if err := categories.Register(r, s.verifier, s.categories); err != nil {
+		return nil, err
+	}
+	if err := reports.Register(r, s.verifier, s.reports, s.photos, s.embedder); err != nil {
+		return nil, err
+	}
 
-	return r
+	return r, nil
 }

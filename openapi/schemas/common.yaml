@@ -1,0 +1,27 @@
+# Responses and schemas shared by several modules.
+Unauthorized:
+  description: The token is missing, expired or invalid.
+  content:
+    text/plain:
+      schema:
+        type: string
+        example: unauthorized
+NotFound:
+  description: The resource does not exist.
+  content:
+    text/plain:
+      schema:
+        type: string
+        example: not found
+Category:
+  type: object
+  required: [slug, label]
+  properties:
+    slug:
+      type: string
+      description: Stable identifier of the category.
+      example: pistas-y-veredas
+    label:
+      type: string
+      description: Name shown to neighbors, in Spanish.
+      example: Pistas y veredas

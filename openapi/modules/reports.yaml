@@ -1,0 +1,840 @@
+# Module reports: publishing and reading neighbor reports. Referenced from ../openapi.yaml.
+paths:
+  /reports:
+    get:
+      operationId: listReports
+      summary: List reports
+      description: >-
+        Returns the published reports from newest to oldest, in pages. Each item
+        carries what a card shows, with a link to its first photo that expires
+        after one hour; the author name and the session that published the
+        report are never returned. Send `latitude` and `longitude` together to
+        get the distance to each report; the order never depends on them. Pass
+        the `nextCursor` of a page as `cursor` to get the following one. Send
+        `category` and `status` to narrow the list; send the same filters with
+        each `cursor`.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportCategoryFilter"
+        - $ref: "#/components/parameters/ReportStatusFilter"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor of the page to get, as returned in `nextCursor`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of reports in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: latitude
+          in: query
+          required: false
+          description: Latitude of the caller; must be sent together with `longitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          required: false
+          description: Longitude of the caller; must be sent together with `latitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+      responses:
+        "200":
+          description: A page of reports, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPage"
+        "400":
+          description: >-
+            The cursor is not one the API issued, the limit is out of range, only
+            one of latitude and longitude was sent, a coordinate is out of
+            range, or a category or status is unknown.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: invalid cursor
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+    post:
+      operationId: createReport
+      summary: Publish a report
+      description: >-
+        Publishes a report with its photos in a single request. The photos are
+        cleaned and stored by the server and the report is created with status
+        `publicado`, tied to the session that sent it. One neighbor can publish
+        at most 5 reports in any 10-minute window.
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateReportRequest"
+      responses:
+        "201":
+          description: The report was published.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedReport"
+        "400":
+          description: >-
+            The data is invalid: unknown category, blank or too long title,
+            details, reference or author name too long, location missing or out
+            of range, a photo count outside 1 to 3, or a file that is not an
+            image.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: title is required
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "413":
+          description: A photo, or the whole request, is larger than allowed.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: photo too large
+        "429":
+          description: The neighbor published too many reports in a short time.
+          headers:
+            Retry-After:
+              description: Seconds to wait before publishing again.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: too many reports
+  /reports/map:
+    get:
+      operationId: getReportMap
+      summary: Get the reports as map points
+      description: >-
+        Returns the published reports as map points, newest first and without
+        pages, up to the 500 newest. Each point carries the id, title, category,
+        status and the location of the problem; the details, the author name and
+        the session that published the report are never returned. Send
+        `category` and `status` to narrow the points.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportCategoryFilter"
+        - $ref: "#/components/parameters/ReportStatusFilter"
+      responses:
+        "200":
+          description: The points, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportMap"
+        "400":
+          description: A category or status is unknown, or more than 5 categories were sent.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: unknown category
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+  /reports/search:
+    get:
+      operationId: searchReports
+      summary: Search reports
+      description: >-
+        Returns the published reports whose title or details contain every word
+        of `q`, ignoring case and accents, in pages with the same items as the
+        feed. The order is newest first (`sort=recent`, the default) or nearest
+        first (`sort=distance`, which needs `latitude` and `longitude`). `q` may
+        be left out only when ordering by distance, which lists every report
+        nearest first. Send `latitude` and `longitude` together to get the
+        distance to each report. Pass the `nextCursor` of a page as `cursor` to
+        get the following one; a cursor only works with the order it was issued
+        for.
+      tags: [reports]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: >-
+            Words to look for, separated by spaces. Text made only of spaces
+            counts as no words.
+          schema:
+            type: string
+            maxLength: 100
+        - name: sort
+          in: query
+          required: false
+          description: Order of the results.
+          schema:
+            type: string
+            enum: [recent, distance]
+            default: recent
+        - name: latitude
+          in: query
+          required: false
+          description: Latitude of the caller; must be sent together with `longitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          required: false
+          description: Longitude of the caller; must be sent together with `latitude`.
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor of the page to get, as returned in `nextCursor`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of reports in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: A page of reports, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPage"
+        "400":
+          description: >-
+            There are no words and the order is not by distance, the order is by
+            distance without a location, `q` is longer than 100 characters, the
+            cursor is not one the API issued for that order, the limit is out of
+            range, only one of latitude and longitude was sent, or a coordinate
+            is out of range.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: invalid cursor
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+  /reports/similar:
+    post:
+      operationId: findSimilarReports
+      summary: Find similar reports near a place
+      description: >-
+        Returns the open reports (not `atendido` nor `cerrado`) within 300 m of
+        the given location whose title and details are close in meaning to the
+        given text, best match first, at most 5. Only the title and details are
+        compared. The author name and the session that published a report are
+        never returned.
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimilarReportsRequest"
+      responses:
+        "200":
+          description: The similar reports, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimilarReports"
+        "400":
+          description: >-
+            The title is blank or too long, the details are too long, or the
+            location is missing or out of range.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: title is required
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "503":
+          description: The comparison service is unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: comparison unavailable
+  /reports/{id}:
+    get:
+      operationId: getReport
+      summary: Get a report
+      description: >-
+        Returns one report with its photos, each as a signed link that expires
+        after one hour. The session that published the report is never
+        returned; a null `authorName` means the report appears as "Vecino
+        anónimo".
+      tags: [reports]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: >-
+            Id of the report (a UUID). It is a plain string so that a malformed
+            id answers 404 like an unknown one.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "404":
+          $ref: ../schemas/common.yaml#/NotFound
+  /reports/{id}/support:
+    put:
+      operationId: supportReport
+      summary: Mark "También me afecta"
+      description: >-
+        Marks that the problem also affects the caller. Marking twice counts
+        once. The author of the report cannot mark support.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: The affected count and the caller's support state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSupport"
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "404":
+          $ref: ../schemas/common.yaml#/NotFound
+        "409":
+          $ref: "#/components/responses/AuthorSupport"
+    delete:
+      operationId: unsupportReport
+      summary: Remove "También me afecta"
+      description: >-
+        Removes the caller's support. Removing support that was not marked
+        changes nothing. The author of the report cannot remove support.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: The affected count and the caller's support state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSupport"
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "404":
+          $ref: ../schemas/common.yaml#/NotFound
+        "409":
+          $ref: "#/components/responses/AuthorSupport"
+  /reports/{id}/contributions:
+    get:
+      operationId: listReportContributions
+      summary: List the aportes of a report
+      description: >-
+        Returns the aportes of a report from oldest to newest, in pages. Pass
+        the `nextCursor` of a page as `cursor` to get the following one. The
+        session that added an aporte is never returned.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor of the page to get, as returned in `nextCursor`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of aportes in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: A page of aportes, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContributionPage"
+        "400":
+          description: The cursor is not one the API issued, or the limit is out of range.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: invalid cursor
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "404":
+          $ref: ../schemas/common.yaml#/NotFound
+    post:
+      operationId: createReportContribution
+      summary: Add an aporte to a report
+      description: >-
+        Adds an aporte (a text with an optional photo) to a report. It also
+        marks "También me afecta" for the caller, in the same transaction; a
+        caller who already supports the report, or who is its author, gets the
+        aporte added and the count left as it was. The photo is cleaned and
+        stored by the server. One neighbor can add at most 10 aportes in any
+        10-minute window.
+      tags: [reports]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateContributionRequest"
+      responses:
+        "201":
+          description: The aporte was added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedContribution"
+        "400":
+          description: >-
+            The text is blank or too long, the author name is too long, more than
+            one photo was sent, or the photo is not an image.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: text is required
+        "401":
+          $ref: ../schemas/common.yaml#/Unauthorized
+        "404":
+          $ref: ../schemas/common.yaml#/NotFound
+        "413":
+          description: The photo, or the whole request, is larger than allowed.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: photo too large
+        "429":
+          description: The neighbor added too many aportes in a short time.
+          headers:
+            Retry-After:
+              description: Seconds to wait before adding another aporte.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: too many contributions
+components:
+  responses:
+    AuthorSupport:
+      description: The caller is the author of the report, who always counts as affected.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: author cannot change support
+  parameters:
+    ReportId:
+      name: id
+      in: path
+      required: true
+      description: >-
+        Id of the report (a UUID). It is a plain string so that a malformed id
+        answers 404 like an unknown one.
+      schema:
+        type: string
+    ReportCategoryFilter:
+      name: category
+      in: query
+      required: false
+      description: >-
+        Slugs of the categories to keep; a report in any of them matches. Left
+        out, every category matches.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 5
+        uniqueItems: true
+        items:
+          type: string
+          example: limpieza
+    ReportStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Status to keep. Left out, every status matches.
+      schema:
+        $ref: "#/components/schemas/ReportStatus"
+  schemas:
+    CreateReportRequest:
+      type: object
+      required: [category, title, latitude, longitude, photos]
+      properties:
+        category:
+          type: string
+          description: Slug of one of the fixed categories.
+          example: limpieza
+        title:
+          type: string
+          maxLength: 100
+          description: What happens, up to 100 characters. Blank titles are rejected.
+        details:
+          type: string
+          maxLength: 1000
+        reference:
+          type: string
+          maxLength: 150
+          description: Free text that helps to find the place.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        authorName:
+          type: string
+          maxLength: 40
+          description: >-
+            Public name of the author. Left out, empty or only spaces means the
+            report appears as "Vecino anónimo".
+        photos:
+          type: array
+          minItems: 1
+          maxItems: 3
+          description: JPEG or PNG photos, in display order.
+          items:
+            type: string
+            format: binary
+    CreatedReport:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [publicado]
+    ReportStatus:
+      type: string
+      description: Status of a report. Statuses only move forward.
+      enum: [publicado, derivado, recibido, en_atencion, atendido, cerrado]
+    Report:
+      type: object
+      required: [id, title, details, category, status, location, reference, authorName, createdAt, photos, affectedCount, contributionCount, support]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        details:
+          type: string
+          nullable: true
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        location:
+          $ref: "#/components/schemas/Location"
+        reference:
+          type: string
+          nullable: true
+          description: Free text that helps to find the place.
+        authorName:
+          type: string
+          nullable: true
+          description: Public name of the author; null means "Vecino anónimo".
+        createdAt:
+          type: string
+          format: date-time
+          description: When the report was published.
+        photos:
+          type: array
+          description: Photos in display order.
+          items:
+            $ref: "#/components/schemas/ReportPhoto"
+        affectedCount:
+          type: integer
+          minimum: 1
+          description: The author plus every other neighbor who supports the report.
+        contributionCount:
+          type: integer
+          minimum: 0
+          description: Number of aportes of the report.
+        support:
+          $ref: "#/components/schemas/SupportState"
+    ReportSummary:
+      type: object
+      description: A report as a card of the list shows it.
+      required: [id, title, category, status, reference, createdAt, coverPhoto, distanceMeters, affectedCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        reference:
+          type: string
+          nullable: true
+          description: Free text that helps to find the place.
+        createdAt:
+          type: string
+          format: date-time
+          description: When the report was published.
+        coverPhoto:
+          $ref: "#/components/schemas/ReportPhoto"
+        distanceMeters:
+          type: integer
+          nullable: true
+          description: >-
+            Distance in whole meters from the location sent in the request; null
+            when no location was sent.
+        affectedCount:
+          type: integer
+          minimum: 1
+          description: The author plus every other neighbor who supports the report.
+    ReportPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportSummary"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor of the next page; null on the last page.
+    ReportMap:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportPin"
+    ReportPin:
+      type: object
+      description: A report as a point of the map.
+      required: [id, title, category, status, location]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        location:
+          $ref: "#/components/schemas/Location"
+    SimilarReportsRequest:
+      type: object
+      required: [title, latitude, longitude]
+      properties:
+        title:
+          type: string
+          maxLength: 100
+          description: What happens, up to 100 characters. Blank titles are rejected.
+        details:
+          type: string
+          maxLength: 1000
+        # x-go-type makes the generated field a pointer, so that a missing
+        # coordinate (nil) is told apart from 0 and answers 400.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          x-go-type: "*float64"
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          x-go-type: "*float64"
+    SimilarReports:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 5
+          description: Best match first.
+          items:
+            $ref: "#/components/schemas/SimilarReport"
+    SimilarReport:
+      type: object
+      description: A report as the "¿Ya lo reportó alguien?" dialog shows it.
+      required: [id, title, category, status, createdAt, coverPhoto, distanceMeters, affectedCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          $ref: ../schemas/common.yaml#/Category
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the report was published.
+        coverPhoto:
+          type: string
+          format: uri
+          description: Signed link to the first photo, valid for one hour.
+        distanceMeters:
+          type: integer
+          description: Distance in whole meters from the location sent in the request.
+        affectedCount:
+          type: integer
+          minimum: 1
+          description: The author plus every other neighbor who supports the report.
+    SupportState:
+      type: string
+      description: >-
+        Relation of the caller with a report: its author, a neighbor who
+        supports it, or neither.
+      enum: [author, supporter, none]
+    ReportSupport:
+      type: object
+      required: [affectedCount, support]
+      properties:
+        affectedCount:
+          type: integer
+          minimum: 1
+        support:
+          $ref: "#/components/schemas/SupportState"
+    Contribution:
+      type: object
+      description: >-
+        An aporte: a text with an optional photo added to a report. The session
+        that added it is never returned.
+      required: [id, text, authorName, createdAt, photoUrl]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        authorName:
+          type: string
+          nullable: true
+          description: Public name of the author; null means "Vecino anónimo".
+        createdAt:
+          type: string
+          format: date-time
+        photoUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Signed link to the photo, valid for one hour; null when there is none.
+    ContributionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contribution"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor of the next page; null on the last page.
+    CreateContributionRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 1200
+          description: The aporte, 1 to 1200 characters once trimmed.
+        authorName:
+          type: string
+          maxLength: 40
+          description: >-
+            Public name of the author. Left out, empty or only spaces means the
+            aporte appears as "Vecino anónimo".
+        photo:
+          type: string
+          format: binary
+          description: One JPEG or PNG photo.
+    CreatedContribution:
+      type: object
+      required: [contribution, affectedCount, support]
+      properties:
+        contribution:
+          $ref: "#/components/schemas/Contribution"
+        affectedCount:
+          type: integer
+          minimum: 1
+        support:
+          $ref: "#/components/schemas/SupportState"
+    Location:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+    ReportPhoto:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Signed link to the photo, valid for one hour.

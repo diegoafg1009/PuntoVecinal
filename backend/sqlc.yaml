@@ -1,14 +1,75 @@
-# sqlc config. Run from backend/:
+# sqlc config. One entry per module: each module generates its own `sqlc`
+# package inside its repository/ folder. Run from backend/:
 #   go tool sqlc generate
 version: "2"
 sql:
   - engine: postgresql
     schema: ../supabase/migrations
-    queries: internal/db/queries
+    queries: internal/categories/repository/queries
     gen:
       go:
-        package: db
-        out: internal/db
+        package: sqlc
+        out: internal/categories/repository/sqlc
         sql_package: pgx/v5
         emit_json_tags: true
         emit_interface: true
+        overrides:
+          - db_type: vector
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+          - db_type: vector
+            nullable: true
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+              pointer: true
+          - db_type: extensions.vector
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+          - db_type: extensions.vector
+            nullable: true
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+              pointer: true
+  - engine: postgresql
+    schema: ../supabase/migrations
+    queries: internal/reports/repository/queries
+    gen:
+      go:
+        package: sqlc
+        out: internal/reports/repository/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: true
+        emit_interface: true
+        overrides:
+          - db_type: vector
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+          - db_type: vector
+            nullable: true
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+              pointer: true
+          - db_type: extensions.vector
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+          - db_type: extensions.vector
+            nullable: true
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              package: pgvector
+              type: Vector
+              pointer: true

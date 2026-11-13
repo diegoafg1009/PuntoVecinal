@@ -1,0 +1,59 @@
+openapi: 3.0.3
+info:
+  title: Punto Vecinal API
+  version: 0.1.0
+  description: API for the Punto Vecinal citizen reporting platform.
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+    description: Operational endpoints.
+  - name: auth
+    description: Identity of the caller.
+  - name: categories
+    description: Fixed report categories.
+  - name: reports
+    description: Publishing and reading neighbor reports.
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Readiness check
+      description: Returns 200 when the API can reach the database.
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The API is ready to serve requests.
+        "503":
+          description: The database is unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: database unavailable
+  /me:
+    $ref: ./modules/auth.yaml#/paths/~1me
+  /categories:
+    $ref: ./modules/categories.yaml#/paths/~1categories
+  /reports:
+    $ref: ./modules/reports.yaml#/paths/~1reports
+  /reports/map:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1map
+  /reports/search:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1search
+  /reports/similar:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1similar
+  /reports/{id}:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}
+  /reports/{id}/support:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}~1support
+  /reports/{id}/contributions:
+    $ref: ./modules/reports.yaml#/paths/~1reports~1{id}~1contributions
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase access token, from an anonymous or a registered session.

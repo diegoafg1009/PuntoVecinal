@@ -21,10 +21,11 @@ schema: spec-driven
 
 rules:
   design:
-    - If the change touches the API, describe the endpoints and schemas added or modified in backend/api/openapi.yaml.
+    - If the change touches the API, describe the endpoints and schemas added or modified in openapi/ (root file, modules/ and schemas/).
   tasks:
-    - If the change touches the API, the first task is updating backend/api/http/openapi.yaml, and the second is regenerating the HTTP layer with `go tool oapi-codegen -config api/http/oapi-codegen.yaml api/http/openapi.yaml` (from backend/); handler code comes after and never edits generated files.
-    - If the change touches the database, add a new migration in supabase/migrations/, update the queries in backend/internal/db/queries/, and regenerate with `go tool sqlc generate` (from backend/) before writing code that uses them.
+    - "Prefix every task with its area in square brackets so it can be applied from the right folder: `[backend]` (Go code, including the contract in openapi/ and `make generate-api`), `[frontend]` (Nuxt app, including `bun run generate:api`), `[db]` (Supabase migrations) or `[all]` (needs more than one area, such as an integration check). Contract tasks count as `[backend]`."
+    - If the change touches the API, the first task is updating the contract in openapi/ (root file, modules/ and schemas/), and the second is regenerating the HTTP layer with `make generate-api` (from backend/); handler code comes after and never edits generated files.
+    - If the change touches the database, add a new migration in supabase/migrations/, update the queries in backend/internal/platform/database/queries/, and regenerate with `go tool sqlc generate` (from backend/) before writing code that uses them.
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.

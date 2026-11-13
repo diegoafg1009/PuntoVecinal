@@ -1,0 +1,11 @@
+# oapi-codegen config for module reports. Run from backend/ (see `make generate-api`):
+#   go tool oapi-codegen -config ../openapi/config/reports.yaml ../openapi/dist/openapi.yaml
+package: api
+output: internal/reports/api/generated.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+  embedded-spec: true
+output-options:
+  include-tags: [reports]

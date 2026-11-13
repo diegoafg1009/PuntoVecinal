@@ -10,10 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/auth"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/config"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/database"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/embedding"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/httpserver"
 	"github.com/diegoafg1009/PuntoVecinal/backend/internal/platform/logging"
+	"github.com/diegoafg1009/PuntoVecinal/backend/internal/reports"
+	reportsrepo "github.com/diegoafg1009/PuntoVecinal/backend/internal/reports/repository"
 )
 
 func gracefulShutdown(apiServer *http.Server, done chan bool) {
@@ -56,7 +60,32 @@ func main() {
 	}
 	defer pool.Close()
 
-	server := httpserver.NewServer(cfg, pool)
+	verifier, err := auth.NewVerifier(context.Background(), cfg.Supabase.URL, cfg.Supabase.JWKSURL)
+	if err != nil {
+		slog.Error("create token verifier", "error", err)
+		os.Exit(1)
+	}
+
+	// Similar reports need a Voyage key. Without one the check answers 503 and
+	// publishing works as before.
+	embedder := embedding.NewVoyage(cfg.Voyage.APIKey)
+	if !embedder.Configured() {
+		slog.Warn("VOYAGE_APIKEY is empty: similar reports are disabled")
+	}
+
+	server, err := httpserver.NewServer(cfg, pool, verifier, embedder)
+	if err != nil {
+		slog.Error("create http server", "error", err)
+		os.Exit(1)
+	}
+
+	// Embed the reports published while Voyage was unreachable. It stops with
+	// the server context.
+	backfillCtx, stopBackfill := context.WithCancel(context.Background())
+	defer stopBackfill()
+	if embedder.Configured() {
+		go reports.RunEmbeddingBackfill(backfillCtx, reportsrepo.NewPgRepository(pool), embedder, slog.Default())
+	}
 
 	// Create a done channel to signal when the shutdown is complete
 	done := make(chan bool, 1)

@@ -8,7 +8,8 @@ A citizen reporting web platform for Cooperativa Primavera, Comas (Lima, Peru). 
 
 ## Structure
 
-- `backend/`: our own API in Go.
+- `openapi/`: the API contract, shared by backend and frontend (split by module, bundled into `openapi/dist/openapi.yaml`). It is the source of truth for the API; see `backend/AGENTS.md`.
+- `backend/`: our own API in Go. Its HTTP layer is generated from the contract into `backend/internal/<module>/api/`.
 - `frontend/`: responsive web app in Nuxt.
 - `supabase/`: Supabase project; `supabase/migrations/` holds the versioned database schema.
 - `openspec/`: specifications (spec-driven development with OpenSpec). `openspec/specs/` holds current behavior and `openspec/changes/` holds changes in progress.
@@ -29,9 +30,11 @@ The app's users speak Spanish, so UI labels are given in Spanish below.
 
 - **Spec first:** every behavior change starts as an OpenSpec change, and every API change updates the OpenAPI contract first. Code is implemented afterwards, following the spec.
   - Flow: propose the change (`openspec-propose` skill, or `/opsx:propose` in Claude Code), implement it (`openspec-apply-change`), and archive it when done (`openspec-archive-change`). Run `openspec validate` before calling a change ready.
+- **Tasks by area:** every task in a change's `tasks.md` starts with its area: `[backend]` (also the contract in `openapi/`), `[frontend]`, `[db]` or `[all]`. When `/opsx:apply` runs from `backend/` or `frontend/`, it does only that folder's tasks (`backend/` also does the `[db]` tasks, since sqlc depends on the migrations); from the repository root it does all of them. See each folder's `AGENTS.md`.
 - **User stories:** they live in Jira. When a task cites one (for example `PV-12`), read it with the Atlassian MCP server (`atlassian`) instead of guessing; if that server is unavailable, ask the user for the story's text.
 - **Scope:** do only what was asked. Don't add features, screens, or endpoints on your own; if something seems missing, ask.
 - **Language:** code, comments, logs, documentation, and specs are written in English. Exceptions: text shown to users in the app, and `README.md`, are in Spanish.
+- **Replies:** always answer in the language the user writes to you in, whatever language the code and docs use.
 
 ## Exploring the code
 

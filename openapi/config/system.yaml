@@ -1,0 +1,11 @@
+# oapi-codegen config for module system. Run from backend/ (see `make generate-api`):
+#   go tool oapi-codegen -config ../openapi/config/system.yaml ../openapi/dist/openapi.yaml
+package: api
+output: internal/system/api/generated.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+  embedded-spec: true
+output-options:
+  include-tags: [system]

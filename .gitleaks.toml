@@ -1,0 +1,11 @@
+# Gitleaks configuration for the secret scan in CI (.github/workflows/ci.yml).
+# Keeps every default rule and only skips files that cannot hold secrets.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated HTTP layer: oapi-codegen embeds the contract as gzipped base64 chunks that match generic-api-key."
+paths = [
+  '''backend/internal/[^/]+/api/generated\.go''',
+]

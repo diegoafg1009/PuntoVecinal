@@ -1,0 +1,84 @@
+# app-navigation Specification
+
+## Purpose
+
+Defines how a neighbor moves between the sections of Punto Vecinal (Inicio, Buscar, Reportar, Avisos, Mapa and Perfil) on mobile and on desktop, with the same sections in both.
+
+## Requirements
+
+### Requirement: Mobile bottom bar
+On mobile, the app SHALL show a bottom bar with Inicio, Buscar, Reportar, Avisos and Mapa, in that order, with Reportar highlighted as the main action, and SHALL mark the current section.
+
+#### Scenario: Bar on a section
+- **GIVEN** the neighbor is on a mobile device on Inicio
+- **THEN** the bottom bar shows Inicio, Buscar, Reportar, Avisos and Mapa
+- **AND** Inicio is marked as the current section
+
+#### Scenario: Move between sections
+- **WHEN** the neighbor taps Buscar or Avisos in the bottom bar
+- **THEN** that section opens and is marked as current
+
+### Requirement: Mobile top bar and avatar
+On mobile, the app SHALL show a top bar with the Punto Vecinal brand and the neighbor's avatar, and the avatar SHALL open Perfil. Screens that have their own top bar (the report page) SHALL show it instead of this one, and keep the bottom bar.
+
+#### Scenario: Open Perfil
+- **WHEN** the neighbor taps the avatar
+- **THEN** Perfil opens
+
+#### Scenario: Screen with its own top bar
+- **GIVEN** the neighbor is on a mobile device
+- **WHEN** they open a report page
+- **THEN** the app top bar with brand and avatar is not shown
+- **AND** the bottom bar is shown
+
+### Requirement: Desktop header
+On desktop, the app SHALL show a header with the Punto Vecinal brand, the menu Inicio, Buscar, Avisos and Mapa, the «Reportar» button and the avatar, and SHALL mark the current section. The content SHALL be centered.
+
+#### Scenario: Header on desktop
+- **GIVEN** the neighbor is on desktop on Inicio
+- **THEN** the header shows the brand, Inicio, Buscar, Avisos, Mapa, the «Reportar» button and the avatar
+- **AND** Inicio is marked as the current section
+
+#### Scenario: Avatar opens Perfil on desktop
+- **WHEN** the neighbor clicks the avatar
+- **THEN** Perfil opens
+
+### Requirement: Same sections on mobile and desktop
+The app SHALL offer the same sections on mobile and on desktop, and the same address SHALL open the same section on both.
+
+#### Scenario: Resize
+- **GIVEN** the neighbor is on Avisos
+- **WHEN** the window changes between mobile and desktop width
+- **THEN** they stay on Avisos and the navigation switches to the bar of that width
+
+### Requirement: Sections without content show «Próximamente»
+Until its own story lands, Perfil SHALL open and show «Próximamente».
+
+#### Scenario: Open a section not built yet
+- **WHEN** the neighbor opens Perfil
+- **THEN** the section opens with the message «Próximamente»
+- **AND** the navigation stays visible
+
+### Requirement: Welcome screen has no navigation
+The app SHALL NOT show any navigation bar on the welcome screen.
+
+#### Scenario: Welcome screen
+- **WHEN** the neighbor is on the welcome screen
+- **THEN** no top bar, bottom bar or header is shown
+
+### Requirement: Mapa opens the map section
+The bottom bar and the desktop header SHALL show Mapa as an available section. Tapping it SHALL open Mapa and mark it as the current section, and opening the Mapa address directly SHALL open Mapa too.
+
+#### Scenario: Tap Mapa on mobile
+- **GIVEN** the neighbor is on a mobile device on Inicio
+- **WHEN** they tap Mapa in the bottom bar
+- **THEN** Mapa opens and is marked as the current section
+
+#### Scenario: Mapa on desktop
+- **GIVEN** the neighbor is on desktop on Inicio
+- **WHEN** they click Mapa in the header
+- **THEN** Mapa opens and is marked as the current section
+
+#### Scenario: Open the map address
+- **WHEN** the neighbor opens the Mapa address from a link or by typing it
+- **THEN** Mapa opens
